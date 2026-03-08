@@ -87,7 +87,8 @@ const App = () => {
       { name: 'apple-mobile-web-app-capable', content: 'yes' },
       { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
       { name: 'apple-mobile-web-app-title', content: 'Money God' },
-      { name: 'mobile-web-app-capable', content: 'yes' }
+      { name: 'mobile-web-app-capable', content: 'yes' },
+      { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' }
     ];
 
     metas.forEach(m => {
@@ -268,8 +269,10 @@ const App = () => {
         .no-scrollbar::-webkit-scrollbar { display: none; } 
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } 
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+        @keyframes float-nav { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
         .animate-spin { animation: spin 1s linear infinite; } 
         .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-float-nav { animation: float-nav 2.5s ease-in-out infinite; }
         .text-up { color: #ff5b41; } 
         .text-down { color: #d8ef9d; }
       `}</style>
@@ -293,9 +296,11 @@ const App = () => {
         </div>
       )}
 
-      <nav className="sticky top-0 z-40 px-5 py-6 flex justify-between items-center max-w-md mx-auto bg-[#050505]/95 backdrop-blur-md border-b border-white/[0.03]">
+      <nav className="sticky top-0 z-40 px-5 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] pb-6 flex justify-between items-center max-w-md mx-auto bg-[#050505]/95 backdrop-blur-md border-b border-white/[0.03]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#1f1f21] rounded-[6px] flex items-center justify-center shadow-lg border border-white/5"><PixelCoin size={26} /></div>
+          <div className="flex items-center justify-center animate-float-nav">
+            <PixelCoin size={32} />
+          </div>
           <div><span className="font-pixel text-lg block leading-none text-white uppercase tracking-tighter">Money God</span><span className="font-sans text-[10px] text-[#4b5563] font-bold tracking-widest uppercase italic">Terminal Active</span></div>
         </div>
         <div className="flex gap-[10px]">
@@ -363,7 +368,7 @@ const App = () => {
                 </div>
               </div>
               <div className="bg-[#1f1f21] rounded-[6px] p-7 border border-white/[0.03]">
-                <div className="flex justify-between items-center mb-6 font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black"><h3 className="text-[13px] text-[#506384] uppercase tracking-widest font-black font-sans font-black">Monthly Expense / 每月支出總額</h3></div>
+                <div className="flex justify-between items-center mb-6 font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black"><h3 className="text-[13px] text-[#506384] uppercase tracking-widest font-black font-sans font-black">Monthly Expense / 每月支出總額</h3></div>
                 <div className="flex items-baseline gap-2 mb-8 font-black">
                   <span className={`font-pixel text-4xl tracking-tighter text-white`}>{showValues ? formatTWD(totals.monthlyExpenses) : 'XXXXX'}</span>
                   <span className="text-[10px] text-[#4b5563] uppercase tracking-widest font-black font-sans">/ MO</span>
@@ -411,7 +416,7 @@ const App = () => {
                           {activeTab !== 'debts' && ( <p className="font-sans text-[8px] font-black text-[#4b5563] uppercase tracking-widest font-sans truncate">{activeTab === 'stocks' ? `${item.symbol}` : activeTab === 'cash' ? `${item.currency} NODE` : (item.tag || '')}</p> )}
                           {activeTab === 'expenses' && ( <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-[2px] shrink-0 ${item.cycle === 'yearly' ? 'bg-[#ff5b41] text-white' : 'bg-[#506384] text-white font-black'}`}>{item.cycle === 'yearly' ? '年繳' : '月繳'}</span> )}
                           {activeTab === 'debts' && item.monthlyPayment > 0 && (
-                            <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="flex flex-col items-start gap-1 min-w-0">
                                <span className="text-[8px] font-black text-[#506384] uppercase bg-[#050505]/50 px-1.5 py-0.5 rounded-[2px] font-black truncate">Pay {formatTWD(item.monthlyPayment)}</span>
                                <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-[2px] shrink-0 ${item.lastPaidMonth === curMonth ? 'bg-[#d8ef9d] text-black font-black' : 'bg-[#1f1f21] text-[#4b5563] border border-white/5 font-black'}`}>{item.lastPaidMonth === curMonth ? 'PAID' : `Day ${item.deductionDay}`}</span>
                             </div>
