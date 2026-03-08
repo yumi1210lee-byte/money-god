@@ -1,7 +1,7 @@
 // JavaScript source code
 export default {
   plugins: {
-    tailwindcss: {},
+    '@tailwindcss/postcss': {},
     autoprefixer: {},
   },
 }

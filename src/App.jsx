@@ -16,7 +16,7 @@ import {
   PieChart,
   Check,
   Edit2,
-  Activity,
+  Activity, 
   Search,
   DollarSign,
   Settings,
@@ -80,6 +80,26 @@ const App = () => {
   const [exchangeRate, setExchangeRate] = useState(32.50); 
   const [entryForm, setEntryForm] = useState({ type: 'cash', label: '', amount: '', currency: 'TWD', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1' });
   const [passForm, setPassForm] = useState({ old: '', new: '', confirm: '' });
+
+  // --- iOS PWA 滿版 Web App 支援 ---
+  useEffect(() => {
+    const metas = [
+      { name: 'apple-mobile-web-app-capable', content: 'yes' },
+      { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+      { name: 'apple-mobile-web-app-title', content: 'Money God' },
+      { name: 'mobile-web-app-capable', content: 'yes' }
+    ];
+
+    metas.forEach(m => {
+      let meta = document.querySelector(`meta[name="${m.name}"]`);
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.name = m.name;
+        document.head.appendChild(meta);
+      }
+      meta.content = m.content;
+    });
+  }, []);
 
   useEffect(() => {
     let interval;
@@ -242,13 +262,23 @@ const App = () => {
   return (
     <div className="min-h-screen bg-[#050505] text-[#e5e7eb] font-sans selection:bg-[#506384]/30">
       <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet" />
-      <style>{`.font-pixel { font-family: 'Silkscreen', cursive !important; } .font-sans { font-family: 'Noto Sans TC', sans-serif !important; } .no-scrollbar::-webkit-scrollbar { display: none; } @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .animate-spin { animation: spin 1s linear infinite; } .text-up { color: #ff5b41; } .text-down { color: #d8ef9d; }`}</style>
+      <style>{`
+        .font-pixel { font-family: 'Silkscreen', cursive !important; } 
+        .font-sans { font-family: 'Noto Sans TC', sans-serif !important; } 
+        .no-scrollbar::-webkit-scrollbar { display: none; } 
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } 
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+        .animate-spin { animation: spin 1s linear infinite; } 
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .text-up { color: #ff5b41; } 
+        .text-down { color: #d8ef9d; }
+      `}</style>
       
       {isLocked && (
         <div className="fixed inset-0 z-[100] bg-[#050505] flex flex-col items-center justify-center px-6">
-          <div className="mb-14 relative bg-[#1f1f21] w-28 h-28 rounded-[6px] flex items-center justify-center border border-white/5 shadow-2xl overflow-hidden">
-             <div className="absolute inset-0 bg-[#506384]/20 blur-2xl"></div>
-             <PixelCoin size={100} />
+          <div className="mb-6 relative flex items-center justify-center animate-float">
+             <div className="absolute w-32 h-32 bg-[#506384]/15 blur-3xl rounded-full"></div>
+             <PixelCoin size={120} />
           </div>
           <div className="text-center mb-12">
             <h1 className="font-pixel text-4xl tracking-tighter mb-3 text-white uppercase font-bold">Money God</h1>
@@ -333,7 +363,7 @@ const App = () => {
                 </div>
               </div>
               <div className="bg-[#1f1f21] rounded-[6px] p-7 border border-white/[0.03]">
-                <div className="flex justify-between items-center mb-6 font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black"><h3 className="text-[13px] text-[#506384] uppercase tracking-widest font-black font-sans font-black">Monthly Expense / 每月支出總額</h3></div>
+                <div className="flex justify-between items-center mb-6 font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black"><h3 className="text-[13px] text-[#506384] uppercase tracking-widest font-black font-sans font-black">Monthly Expense / 每月支出總額</h3></div>
                 <div className="flex items-baseline gap-2 mb-8 font-black">
                   <span className={`font-pixel text-4xl tracking-tighter text-white`}>{showValues ? formatTWD(totals.monthlyExpenses) : 'XXXXX'}</span>
                   <span className="text-[10px] text-[#4b5563] uppercase tracking-widest font-black font-sans">/ MO</span>
@@ -366,8 +396,8 @@ const App = () => {
                 const isDebtEnabled = activeTab === 'debts' && item.monthlyPayment > 0 && curDay >= (item.deductionDay || 1) && item.lastPaidMonth !== curMonth;
 
                 return (
-                  <div key={item.id} className="bg-[#1f1f21] p-5 rounded-[6px] flex justify-between items-center border border-white/[0.03] transition-all min-h-[100px]">
-                    <div className="flex items-center gap-4">
+                  <div key={item.id} className="bg-[#1f1f21] p-4 rounded-[6px] flex justify-between items-center border border-white/[0.03] transition-all min-h-[100px] gap-2 overflow-hidden">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="w-11 h-11 rounded-[6px] bg-[#050505] flex items-center justify-center text-[#506384] border border-white/5 shadow-inner font-pixel text-[13px] font-bold overflow-hidden shrink-0">
                          {activeTab === 'cash' ? ( <span>{item.currency === 'TWD' ? 'NT' : 'US'}</span> ) : 
                           activeTab === 'stocks' ? ( item.change >= 0 ? <TrendingUp size={22} className="text-up" /> : <TrendingDown size={22} className="text-down" /> ) : 
@@ -375,32 +405,32 @@ const App = () => {
                           ( <div className="flex flex-col items-center justify-center leading-none">{item.cycle === 'yearly' ? ( <> <span className="text-[10px] opacity-60 mb-0.5 font-pixel">{String(item.month).padStart(2, '0')}</span> <span className="text-[13px] font-bold font-pixel">{String(item.day).padStart(2, '0')}</span> </> ) : ( <span className="text-[13px] font-bold font-pixel">{String(item.day).padStart(2, '0')}</span> )}</div> )}
                       </div>
                       
-                      <div className="flex flex-col items-start text-left justify-center font-sans">
-                        <p className="text-xs font-bold text-white leading-tight font-sans uppercase tracking-tight mb-2 font-sans">{item.label}</p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {activeTab !== 'debts' && ( <p className="font-sans text-[9px] font-black text-[#4b5563] uppercase tracking-widest font-sans">{activeTab === 'stocks' ? `${item.symbol} • ${item.shares} UNIT` : activeTab === 'cash' ? `${item.currency} NODE` : (item.tag || '')}</p> )}
-                          {activeTab === 'expenses' && ( <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-[2px] ${item.cycle === 'yearly' ? 'bg-[#ff5b41] text-white' : 'bg-[#506384] text-white font-black'}`}>{item.cycle === 'yearly' ? '年繳' : '月繳'}</span> )}
+                      <div className="flex flex-col items-start text-left justify-center font-sans min-w-0">
+                        <p className="text-xs font-bold text-white leading-tight font-sans uppercase tracking-tight mb-1 font-sans truncate w-full">{item.label}</p>
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          {activeTab !== 'debts' && ( <p className="font-sans text-[8px] font-black text-[#4b5563] uppercase tracking-widest font-sans truncate">{activeTab === 'stocks' ? `${item.symbol}` : activeTab === 'cash' ? `${item.currency} NODE` : (item.tag || '')}</p> )}
+                          {activeTab === 'expenses' && ( <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-[2px] shrink-0 ${item.cycle === 'yearly' ? 'bg-[#ff5b41] text-white' : 'bg-[#506384] text-white font-black'}`}>{item.cycle === 'yearly' ? '年繳' : '月繳'}</span> )}
                           {activeTab === 'debts' && item.monthlyPayment > 0 && (
-                            <div className="flex items-center gap-1.5">
-                               <span className="text-[8px] font-black text-[#506384] uppercase bg-[#050505]/50 px-1.5 py-0.5 rounded-[2px] font-black">Pay {formatTWD(item.monthlyPayment)}</span>
-                               <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-[2px] ${item.lastPaidMonth === curMonth ? 'bg-[#d8ef9d] text-black font-black' : 'bg-[#1f1f21] text-[#4b5563] border border-white/5 font-black'}`}>{item.lastPaidMonth === curMonth ? 'PAID' : `Day ${item.deductionDay}`}</span>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                               <span className="text-[8px] font-black text-[#506384] uppercase bg-[#050505]/50 px-1.5 py-0.5 rounded-[2px] font-black truncate">Pay {formatTWD(item.monthlyPayment)}</span>
+                               <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-[2px] shrink-0 ${item.lastPaidMonth === curMonth ? 'bg-[#d8ef9d] text-black font-black' : 'bg-[#1f1f21] text-[#4b5563] border border-white/5 font-black'}`}>{item.lastPaidMonth === curMonth ? 'PAID' : `Day ${item.deductionDay}`}</span>
                             </div>
                           )}
                         </div>
                         {activeTab === 'stocks' && showValues && (
-                          <div className="flex flex-col gap-1 mt-3 p-2 bg-[#050505]/40 rounded-[4px] border border-white/[0.02] w-full min-w-[140px] font-black">
-                             <div className="flex items-center gap-1.5 text-[#506384]"><DollarSign size={10} /><span className="text-[9px] font-sans font-black uppercase tracking-tight">Est. Div: {formatTWD(item.shares * item.dividend)}</span></div>
-                             <div className="flex items-center gap-1.5 text-[#4b5563] font-sans font-black"><Calendar size={10} /><span className="text-[9px] font-sans font-black uppercase tracking-tight">Months: {item.divMonth || '---'}</span></div>
+                          <div className="flex flex-col gap-0.5 mt-2 p-1.5 bg-[#050505]/40 rounded-[4px] border border-white/[0.02] w-full min-w-0 font-black">
+                             <div className="flex items-center gap-1.5 text-[#506384]"><DollarSign size={8} /><span className="text-[8px] font-sans font-black uppercase tracking-tight truncate">Div: {formatTWD(item.shares * item.dividend)}</span></div>
+                             <div className="flex items-center gap-1.5 text-[#4b5563] font-sans font-black"><Calendar size={8} /><span className="text-[8px] font-sans font-black uppercase tracking-tight truncate">Mo: {item.divMonth || '---'}</span></div>
                           </div>
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-5 shrink-0 h-full font-sans font-bold">
-                      <div className="flex flex-col text-right justify-center font-pixel">
+                    <div className="flex items-center gap-3 shrink-0 h-full font-sans font-bold ml-1">
+                      <div className="flex flex-col text-right justify-center font-pixel min-w-[70px]">
                         <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (item.currency === 'USD' ? `$ ${item.amount.toLocaleString()}` : formatTWD(activeTab === 'stocks' ? (item.shares * item.price * (item.symbol?.includes('.TW') || !isNaN(item.symbol) ? 1 : exchangeRate)) : item.amount)) : 'XXXXX'}</span>
-                        {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-1 mt-2"> <div className="flex items-baseline gap-1"><span className={`text-[8px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change)}</span></div> <span className="text-[8px] font-sans text-gray-700 uppercase font-black font-black">@ {item.price?.toFixed(2) || '---'}</span> </div> )}
+                        {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[8px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change)}</span></div> <span className="text-[7px] font-sans text-gray-700 uppercase font-black">@ {item.price?.toFixed(1) || '---'}</span> </div> )}
                       </div>
-                      <div className="flex flex-col gap-1.5 transition-all items-center justify-center bg-[#050505]/50 p-1.5 rounded-[4px] shrink-0 font-bold"><button onClick={() => handleOpenModal(activeTab, item)} className="text-[#444] hover:text-[#506384] transition-colors"><Edit2 size={15} /></button><div className="w-3 h-[1px] bg-white/[0.05]"></div><button onClick={() => deleteItem(activeTab, item.id)} className="text-[#444] hover:text-rose-600 transition-colors"><Trash2 size={15} /></button></div>
+                      <div className="flex flex-col gap-1.5 transition-all items-center justify-center bg-[#050505]/50 p-1.5 rounded-[4px] shrink-0 font-bold"><button onClick={() => handleOpenModal(activeTab, item)} className="text-[#444] hover:text-[#506384] transition-colors"><Edit2 size={13} /></button><div className="w-3 h-[1px] bg-white/[0.05]"></div><button onClick={() => deleteItem(activeTab, item.id)} className="text-[#444] hover:text-rose-600 transition-colors"><Trash2 size={13} /></button></div>
                     </div>
                   </div>
                 );
@@ -411,7 +441,12 @@ const App = () => {
       </main>
 
       <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50">
-        <button onClick={() => handleOpenModal(activeTab)} className="font-sans bg-[#506384] text-white h-16 px-12 rounded-[6px] font-black text-[15px] shadow-2xl flex items-center gap-3 active:scale-95 transition-all uppercase tracking-widest font-black font-sans font-black"><Plus size={22} strokeWidth={3} /><span>New Entry / 紀錄數據</span></button>
+        <button 
+          onClick={() => handleOpenModal(activeTab)} 
+          className="bg-[#506384] text-white w-16 h-16 rounded-[8px] shadow-[0_8px_30px_rgb(80,99,132,0.4)] flex items-center justify-center active:scale-95 hover:scale-105 transition-all border border-white/10"
+        >
+          <Plus size={32} strokeWidth={3} />
+        </button>
       </div>
 
       {isSettingsOpen && (
