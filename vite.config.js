@@ -3,5 +3,5 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/money-god/', // ³o¬O GitHub Pages ªº¸ô®|¡A½Ğ½T«O»P Repo ¦WºÙ¬Û¦P
+  base: '/money-god/', // é€™æ˜¯ GitHub Pages çš„è·¯å¾‘ï¼Œè«‹ç¢ºä¿èˆ‡ Repo åç¨±ç›¸åŒ
 })
