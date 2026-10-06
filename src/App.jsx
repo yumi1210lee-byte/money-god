@@ -55,6 +55,48 @@ const formatTWD = (val) => new Intl.NumberFormat('zh-TW', {
   maximumFractionDigits: 0 
 }).format(val).replace('$', '$ ');
 
+const DATA_KEY = 'money_god_v55';
+const DEFAULT_DATA = {
+  cash: [{ id: 'c1', label: '主要活期儲蓄', amount: 1250000, currency: 'TWD' }],
+  stocks: [{ id: 's1', symbol: '2330.TW', label: '台積電', shares: 1000, price: 1050, change: 15, dividend: 4.5, divMonth: '3,6,9,12' }],
+  debts: [{ id: 'd1', label: '房屋貸款本金', amount: 8500000, monthlyPayment: 32000, deductionDay: 5, lastPaidMonth: 0 }],
+  monthlyExpenses: [{ id: 'e1', label: '房貸繳納', amount: 32000, day: 5, tag: '貸款', cycle: 'monthly' }]
+};
+
+// 在第一次 render 前就讀取已儲存的資料，避免預設資料先寫回 localStorage 蓋掉使用者資料
+const loadData = () => {
+  try {
+    const saved = localStorage.getItem(DATA_KEY);
+    if (saved) return { cash: [], stocks: [], debts: [], monthlyExpenses: [], ...JSON.parse(saved) };
+  } catch { /* 資料毀損時改用預設資料 */ }
+  return DEFAULT_DATA;
+};
+
+const isTwStock = (symbol) => {
+  const sym = String(symbol || '').trim().toUpperCase();
+  return sym.includes('.TW') || /^\d+$/.test(sym);
+};
+
+// 年月字串，例如 "2026-10"，用來判斷本月是否已繳款
+const toYearMonth = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+// 舊資料只有 lastPaidMonth（月份數字），沿用舊判斷直到下一次繳款寫入 lastPaidYM
+const isPaidThisMonth = (debt, today) => debt.lastPaidYM ? debt.lastPaidYM === toYearMonth(today) : debt.lastPaidMonth === today.getMonth() + 1;
+
+// 取「最新交易日之前」最後一根日 K 的收盤價。
+// chartPreviousClose 是整段圖表起點前的收盤價（range=1y 時約為一年前），不能拿來算當日漲跌。
+const getPreviousClose = (result) => {
+  const { regularMarketTime, gmtoffset = 0 } = result.meta;
+  const timestamps = result.timestamp || [];
+  const closes = result.indicators?.quote?.[0]?.close || [];
+  const toLocalDay = (t) => Math.floor((t + gmtoffset) / 86400);
+  const marketDay = toLocalDay(regularMarketTime);
+  for (let i = timestamps.length - 1; i >= 0; i--) {
+    if (closes[i] != null && toLocalDay(timestamps[i]) < marketDay) return closes[i];
+  }
+  return null;
+};
+
 const App = () => {
   const [storedPassword, setStoredPassword] = useState(localStorage.getItem('asset_terminal_pass') || '');
   const [isLocked, setIsLocked] = useState(true);
@@ -70,37 +112,11 @@ const App = () => {
   const [syncStep, setSyncStep] = useState(-1);
   const [editingId, setEditingId] = useState(null);
 
-  const [data, setData] = useState({
-    cash: [{ id: 'c1', label: '主要活期儲蓄', amount: 1250000, currency: 'TWD' }],
-    stocks: [{ id: 's1', symbol: '2330.TW', label: '台積電', shares: 1000, price: 1050, change: 15, dividend: 4.5, divMonth: '3,6,9,12' }],
-    debts: [{ id: 'd1', label: '房屋貸款本金', amount: 8500000, monthlyPayment: 32000, deductionDay: 5, lastPaidMonth: 0 }],
-    monthlyExpenses: [{ id: 'e1', label: '房貸繳納', amount: 32000, day: 5, tag: '貸款', cycle: 'monthly' }]
-  });
+  const [data, setData] = useState(loadData);
 
   const [exchangeRate, setExchangeRate] = useState(32.50); 
   const [entryForm, setEntryForm] = useState({ type: 'cash', label: '', amount: '', currency: 'TWD', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1' });
   const [passForm, setPassForm] = useState({ old: '', new: '', confirm: '' });
-
-  // --- iOS PWA 滿版 Web App 支援 ---
-  useEffect(() => {
-    const metas = [
-      { name: 'apple-mobile-web-app-capable', content: 'yes' },
-      { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
-      { name: 'apple-mobile-web-app-title', content: 'Money God' },
-      { name: 'mobile-web-app-capable', content: 'yes' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' }
-    ];
-
-    metas.forEach(m => {
-      let meta = document.querySelector(`meta[name="${m.name}"]`);
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.name = m.name;
-        document.head.appendChild(meta);
-      }
-      meta.content = m.content;
-    });
-  }, []);
 
   useEffect(() => {
     let interval;
@@ -120,7 +136,7 @@ const App = () => {
         const result = await res.json();
         const finalData = typeof result.contents === 'string' ? JSON.parse(result.contents) : (result.contents || result);
         if (finalData) return finalData;
-      } catch (e) { continue; }
+      } catch { continue; }
     }
     return null;
   };
@@ -130,7 +146,7 @@ const App = () => {
       let sym = symbol.toUpperCase().trim();
       if (!sym) return null;
       if (/^\d{4,6}$/.test(sym)) { sym += '.TW'; }
-      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1mo&range=1y&events=div`;
+      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1y&events=div`;
       const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${sym}&lang=zh-Hant-TW&region=TW`;
       const priceData = await fetchWithProxy(yahooUrl);
       const searchData = await fetchWithProxy(searchUrl);
@@ -148,40 +164,39 @@ const App = () => {
         const match = searchData.quotes.find(q => q.symbol === sym) || searchData.quotes[0];
         cnName = match.shortname || match.longname || sym;
       }
-      return { price: result.meta.regularMarketPrice, change: result.meta.regularMarketPrice - result.meta.chartPreviousClose, name: cnName, dividend: lastDiv, divMonth: divMonths, finalSymbol: sym };
-    } catch (e) { return null; }
+      const prevClose = getPreviousClose(result);
+      return { price: result.meta.regularMarketPrice, change: prevClose != null ? result.meta.regularMarketPrice - prevClose : 0, name: cnName, dividend: lastDiv, divMonth: divMonths, finalSymbol: sym };
+    } catch { return null; }
   };
 
   const syncFinanceData = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
-      const rateRes = await fetch('https://open.er-api.com/v6/latest/USD');
-      const rateD = await rateRes.json();
-      if (rateD?.rates?.TWD) setExchangeRate(rateD.rates.TWD);
-      const updatedStocks = await Promise.all(data.stocks.map(async (stock) => {
-        const fetched = await fetchStockData(stock.symbol);
-        if (fetched) return { ...stock, price: fetched.price, change: fetched.change, label: fetched.name, dividend: fetched.dividend || stock.dividend, divMonth: fetched.divMonth || stock.divMonth, amount: stock.shares * fetched.price };
-        return stock;
-      }));
-      setData(prev => ({ ...prev, stocks: updatedStocks }));
+      // 匯率失敗不應中斷股價更新
+      try {
+        const rateRes = await fetch('https://open.er-api.com/v6/latest/USD');
+        const rateD = await rateRes.json();
+        if (rateD?.rates?.TWD) setExchangeRate(rateD.rates.TWD);
+      } catch (err) { console.error("Exchange rate sync failed:", err); }
+      const results = await Promise.all(data.stocks.map(async (stock) => [stock.id, await fetchStockData(stock.symbol)]));
+      const fetchedById = Object.fromEntries(results.filter(([, fetched]) => fetched));
+      // 合併到最新的 prev.stocks，同步期間刪除的股票不會被加回來；保留使用者自訂的名稱
+      setData(prev => ({ ...prev, stocks: prev.stocks.map(stock => {
+        const fetched = fetchedById[stock.id];
+        if (!fetched) return stock;
+        return { ...stock, price: fetched.price, change: fetched.change, label: stock.label || fetched.name, dividend: fetched.dividend || stock.dividend, divMonth: fetched.divMonth || stock.divMonth, amount: stock.shares * fetched.price };
+      }) }));
       setLastUpdated(new Date().toLocaleTimeString([], { hour12: false }));
     } catch (err) { console.error("Sync failed:", err); } finally { setIsSyncing(false); }
   };
 
-  useEffect(() => {
-    const savedData = localStorage.getItem('money_god_v55');
-    if (savedData) { try { setData(JSON.parse(savedData)); } catch (e) {} }
-  }, []);
   useEffect(() => { if (!isLocked) syncFinanceData(); }, [isLocked]);
-  useEffect(() => { localStorage.setItem('money_god_v55', JSON.stringify(data)); }, [data]);
+  useEffect(() => { localStorage.setItem(DATA_KEY, JSON.stringify(data)); }, [data]);
 
   const totals = useMemo(() => {
     const cashTwd = data.cash.reduce((acc, curr) => acc + (curr.currency === 'USD' ? curr.amount * exchangeRate : curr.amount), 0);
-    const stockTwd = data.stocks.reduce((acc, curr) => {
-      const isTw = curr.symbol?.includes('.TW') || /^\d+$/.test(curr.symbol);
-      return acc + (curr.shares * curr.price * (isTw ? 1 : exchangeRate));
-    }, 0);
+    const stockTwd = data.stocks.reduce((acc, curr) => acc + (curr.shares * curr.price * (isTwStock(curr.symbol) ? 1 : exchangeRate)), 0);
     const debtTotal = data.debts.reduce((acc, curr) => acc + curr.amount, 0);
     const totalAssets = cashTwd + stockTwd;
     const tagStats = { '民生繳費': 0, '保險': 0, '貸款': 0, '訂閱': 0 };
@@ -236,7 +251,8 @@ const App = () => {
     }
     const sharesCount = parseFloat(finalData.shares) || 0;
     const calculatedAmount = type === 'stocks' ? (sharesCount * currentPrice) : (parseFloat(finalData.amount) || 0);
-    const itemData = { id: editingId || Math.random().toString(36).substr(2, 9), label: finalData.label, amount: calculatedAmount, currency: finalData.currency, symbol: finalData.symbol?.toUpperCase() || '', shares: sharesCount, price: finalData.price || 0, change: finalData.change || 0, dividend: parseFloat(finalData.dividend) || 0, divMonth: finalData.divMonth, month: finalData.month, day: parseInt(finalData.day) || 1, tag: finalData.tag, cycle: finalData.cycle, monthlyPayment: parseFloat(finalData.monthlyPayment) || 0, deductionDay: parseInt(finalData.deductionDay) || 1, lastPaidMonth: editingId ? (data.debts.find(d => d.id === editingId)?.lastPaidMonth || 0) : 0 };
+    const prevDebt = editingId ? data.debts.find(d => d.id === editingId) : null;
+    const itemData = { id: editingId || Math.random().toString(36).substr(2, 9), label: finalData.label, amount: calculatedAmount, currency: finalData.currency, symbol: finalData.symbol?.trim().toUpperCase() || '', shares: sharesCount, price: finalData.price || 0, change: finalData.change || 0, dividend: parseFloat(finalData.dividend) || 0, divMonth: finalData.divMonth, month: finalData.month, day: parseInt(finalData.day) || 1, tag: finalData.tag, cycle: finalData.cycle, monthlyPayment: parseFloat(finalData.monthlyPayment) || 0, deductionDay: parseInt(finalData.deductionDay) || 1, lastPaidMonth: prevDebt?.lastPaidMonth || 0, lastPaidYM: prevDebt?.lastPaidYM || '' };
     const key = type === 'expenses' ? 'monthlyExpenses' : type;
     setData(prev => ({ ...prev, [key]: editingId ? prev[key].map(i => i.id === editingId ? itemData : i) : [...prev[key], itemData] }));
     setIsModalOpen(false);
@@ -245,7 +261,8 @@ const App = () => {
   const handleQuickPay = (id) => {
     const today = new Date();
     const curMonth = today.getMonth() + 1;
-    setData(prev => ({ ...prev, debts: prev.debts.map(debt => debt.id === id ? { ...debt, amount: Math.max(0, debt.amount - (debt.monthlyPayment || 0)), lastPaidMonth: curMonth } : debt) }));
+    // 同時保留 lastPaidMonth，讓舊版程式讀到的資料仍然正確
+    setData(prev => ({ ...prev, debts: prev.debts.map(debt => debt.id === id ? { ...debt, amount: Math.max(0, debt.amount - (debt.monthlyPayment || 0)), lastPaidMonth: curMonth, lastPaidYM: toYearMonth(today) } : debt) }));
   };
 
   const deleteItem = (cat, id) => {
@@ -396,9 +413,12 @@ const App = () => {
 
               {data[activeTab === 'expenses' ? 'monthlyExpenses' : activeTab].map(item => {
                 const today = new Date();
-                const curMonth = today.getMonth() + 1;
                 const curDay = today.getDate();
-                const isDebtEnabled = activeTab === 'debts' && item.monthlyPayment > 0 && curDay >= (item.deductionDay || 1) && item.lastPaidMonth !== curMonth;
+                const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+                const isPaid = activeTab === 'debts' && isPaidThisMonth(item, today);
+                // 扣款日 29～31 號在小月份改以月底當天計算
+                const isDebtEnabled = activeTab === 'debts' && item.monthlyPayment > 0 && curDay >= Math.min(item.deductionDay || 1, daysInMonth) && !isPaid;
+                const stockRate = activeTab === 'stocks' && !isTwStock(item.symbol) ? exchangeRate : 1;
 
                 return (
                   <div key={item.id} className="bg-[#1f1f21] p-4 rounded-[6px] flex justify-between items-center border border-white/[0.03] transition-all min-h-[100px] gap-2 overflow-hidden">
@@ -418,13 +438,13 @@ const App = () => {
                           {activeTab === 'debts' && item.monthlyPayment > 0 && (
                             <div className="flex flex-col items-start gap-1 min-w-0">
                                <span className="text-[8px] font-black text-[#506384] uppercase bg-[#050505]/50 px-1.5 py-0.5 rounded-[2px] font-black truncate">Pay {formatTWD(item.monthlyPayment)}</span>
-                               <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-[2px] shrink-0 ${item.lastPaidMonth === curMonth ? 'bg-[#d8ef9d] text-black font-black' : 'bg-[#1f1f21] text-[#4b5563] border border-white/5 font-black'}`}>{item.lastPaidMonth === curMonth ? 'PAID' : `Day ${item.deductionDay}`}</span>
+                               <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-[2px] shrink-0 ${isPaid ? 'bg-[#d8ef9d] text-black font-black' : 'bg-[#1f1f21] text-[#4b5563] border border-white/5 font-black'}`}>{isPaid ? 'PAID' : `Day ${item.deductionDay}`}</span>
                             </div>
                           )}
                         </div>
                         {activeTab === 'stocks' && showValues && (
                           <div className="flex flex-col gap-0.5 mt-2 p-1.5 bg-[#050505]/40 rounded-[4px] border border-white/[0.02] w-full min-w-0 font-black">
-                             <div className="flex items-center gap-1.5 text-[#506384]"><DollarSign size={8} /><span className="text-[8px] font-sans font-black uppercase tracking-tight truncate">Div: {formatTWD(item.shares * item.dividend)}</span></div>
+                             <div className="flex items-center gap-1.5 text-[#506384]"><DollarSign size={8} /><span className="text-[8px] font-sans font-black uppercase tracking-tight truncate">Div: {formatTWD(item.shares * item.dividend * stockRate)}</span></div>
                              <div className="flex items-center gap-1.5 text-[#4b5563] font-sans font-black"><Calendar size={8} /><span className="text-[8px] font-sans font-black uppercase tracking-tight truncate">Mo: {item.divMonth || '---'}</span></div>
                           </div>
                         )}
@@ -432,8 +452,8 @@ const App = () => {
                     </div>
                     <div className="flex items-center gap-3 shrink-0 h-full font-sans font-bold ml-1">
                       <div className="flex flex-col text-right justify-center font-pixel min-w-[70px]">
-                        <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (item.currency === 'USD' ? `$ ${item.amount.toLocaleString()}` : formatTWD(activeTab === 'stocks' ? (item.shares * item.price * (item.symbol?.includes('.TW') || !isNaN(item.symbol) ? 1 : exchangeRate)) : item.amount)) : 'XXXXX'}</span>
-                        {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[8px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change)}</span></div> <span className="text-[7px] font-sans text-gray-700 uppercase font-black">@ {item.price?.toFixed(1) || '---'}</span> </div> )}
+                        <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (item.currency === 'USD' ? `$ ${item.amount.toLocaleString()}` : formatTWD(activeTab === 'stocks' ? (item.shares * item.price * stockRate) : item.amount)) : 'XXXXX'}</span>
+                        {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[8px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change * stockRate)}</span></div> <span className="text-[7px] font-sans text-gray-700 uppercase font-black">@ {item.price?.toFixed(1) || '---'}</span> </div> )}
                       </div>
                       <div className="flex flex-col gap-1.5 transition-all items-center justify-center bg-[#050505]/50 p-1.5 rounded-[4px] shrink-0 font-bold"><button onClick={() => handleOpenModal(activeTab, item)} className="text-[#444] hover:text-[#506384] transition-colors"><Edit2 size={13} /></button><div className="w-3 h-[1px] bg-white/[0.05]"></div><button onClick={() => deleteItem(activeTab, item.id)} className="text-[#444] hover:text-rose-600 transition-colors"><Trash2 size={13} /></button></div>
                     </div>
