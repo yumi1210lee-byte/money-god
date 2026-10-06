@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo, useRef, useEffectEvent } from 'react';
 import { 
   Wallet, 
   TrendingUp, 
@@ -74,8 +74,11 @@ const loadData = () => {
 
 const isTwStock = (symbol) => {
   const sym = String(symbol || '').trim().toUpperCase();
-  return sym.includes('.TW') || /^\d+$/.test(sym);
+  return sym.includes('.TW') || /^\d+[A-Z]?$/.test(sym);
 };
+
+// 股價的匯率：台股為 1，其他以美元匯率換算
+const stockFxRate = (stock, exchangeRate) => isTwStock(stock.quoteSymbol || stock.symbol) ? 1 : exchangeRate;
 
 // 年月字串，例如 "2026-10"，用來判斷本月是否已繳款
 const toYearMonth = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -97,6 +100,122 @@ const getPreviousClose = (result) => {
   return null;
 };
 
+const FETCH_TIMEOUT_MS = 8000;
+const STOCK_CONCURRENCY = 2;                     // 同時最多抓幾檔，避免一次發太多請求被擋
+const AUTO_REFRESH_MS = 5 * 60 * 1000;           // App 開著時每 5 分鐘自動更新
+const RESUME_REFRESH_MS = 60 * 1000;             // 從背景回到 App 時，距上次同步超過 1 分鐘就更新
+const DIVIDEND_REFRESH_MS = 24 * 60 * 60 * 1000; // 股利資料一天最多更新一次
+
+const fetchWithTimeout = async (url) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try { return await fetch(url, { signal: controller.signal }); }
+  finally { clearTimeout(timer); }
+};
+
+// Yahoo 不允許瀏覽器直接跨網域呼叫，需經過 CORS 代理；依序嘗試不同代理與 Yahoo 主機
+const YAHOO_ATTEMPTS = [
+  { host: 'query1', proxy: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}&_=${Date.now()}` },
+  { host: 'query2', proxy: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
+  { host: 'query2', proxy: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&_=${Date.now()}` },
+];
+
+// 回傳 Yahoo 的 JSON（查無代號時也是 JSON）；所有代理都失敗、逾時或被限流時回傳 null
+const fetchYahoo = async (path) => {
+  for (const { host, proxy } of YAHOO_ATTEMPTS) {
+    try {
+      const res = await fetchWithTimeout(proxy(`https://${host}.finance.yahoo.com${path}`));
+      const body = await res.json();
+      const payload = typeof body?.contents === 'string' ? JSON.parse(body.contents) : body;
+      if (payload?.chart || payload?.quotes) return payload;
+    } catch { /* 換下一個代理 */ }
+  }
+  return null;
+};
+
+// 純數字代號（可帶一個字母，如 00679B）先試上市 .TW，找不到再試上櫃 .TWO
+const toYahooCandidates = (symbol) => {
+  const sym = String(symbol || '').trim().toUpperCase();
+  if (!sym) return [];
+  return /^\d{4,6}[A-Z]?$/.test(sym) ? [`${sym}.TW`, `${sym}.TWO`] : [sym];
+};
+
+const parseDividends = (result) => {
+  const divArray = Object.values(result?.events?.dividends || {}).sort((a, b) => b.date - a.date);
+  return {
+    dividend: divArray[0]?.amount || 0,
+    divMonth: [...new Set(divArray.map(d => new Date(d.date * 1000).getMonth() + 1))].sort((a, b) => a - b).join(','),
+  };
+};
+
+const isDividendStale = (stock) => !stock.divUpdatedAt || Date.now() - stock.divUpdatedAt > DIVIDEND_REFRESH_MS;
+
+// 回傳報價；網路失敗或查無此代號時回傳 null
+const fetchStockQuote = async (stock, { withName, withDividend }) => {
+  const candidates = [...new Set([stock.quoteSymbol, ...toYahooCandidates(stock.symbol)].filter(Boolean))];
+  for (const sym of candidates) {
+    const chart = await fetchYahoo(`/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5d`);
+    if (!chart) return null; // 網路問題，不再嘗試其他後綴
+    const result = chart.chart?.result?.[0];
+    if (result?.meta?.regularMarketPrice == null) continue; // 查無此代號，試下一個
+    const price = result.meta.regularMarketPrice;
+    const prevClose = getPreviousClose(result);
+    const quote = { quoteSymbol: sym, price, change: prevClose != null ? price - prevClose : 0 };
+    if (withDividend) {
+      const divResult = (await fetchYahoo(`/v8/finance/chart/${encodeURIComponent(sym)}?interval=1mo&range=1y&events=div`))?.chart?.result?.[0];
+      if (divResult) Object.assign(quote, parseDividends(divResult));
+    }
+    if (withName) {
+      const search = await fetchYahoo(`/v1/finance/search?q=${encodeURIComponent(sym)}&lang=zh-Hant-TW&region=TW`);
+      const match = search?.quotes?.find(q => q.symbol === sym) || search?.quotes?.[0];
+      quote.name = match?.shortname || match?.longname || result.meta.shortName || result.meta.longName || sym;
+    }
+    return quote;
+  }
+  return null;
+};
+
+const applyQuote = (stock, quote) => ({
+  ...stock,
+  quoteSymbol: quote.quoteSymbol,
+  price: quote.price,
+  change: quote.change,
+  amount: stock.shares * quote.price,
+  priceUpdatedAt: Date.now(),
+  ...(!stock.label && quote.name ? { label: quote.name } : {}),
+  ...(quote.dividend !== undefined ? { dividend: quote.dividend || stock.dividend, divMonth: quote.divMonth || stock.divMonth, divUpdatedAt: Date.now() } : {}),
+});
+
+const fetchUsdTwdRate = async () => {
+  try {
+    const res = await fetchWithTimeout('https://open.er-api.com/v6/latest/USD');
+    return (await res.json())?.rates?.TWD || null;
+  } catch (err) {
+    console.error("Exchange rate sync failed:", err);
+    return null;
+  }
+};
+
+const runWithLimit = async (items, limit, worker) => {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) await worker(queue.shift());
+  }));
+};
+
+const formatUpdatedAt = (ts) => {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+};
+
+const StockSyncBadge = ({ status, updatedAt }) => {
+  if (status === 'loading') return <span className="flex items-center gap-1 text-[8px] font-black text-[#506384] shrink-0"><RefreshCw size={8} className="animate-spin" />更新中</span>;
+  if (status === 'error') return <span className="text-[8px] font-black text-[#ff5b41] shrink-0">更新失敗{updatedAt ? ` · ${formatUpdatedAt(updatedAt)}` : ''}</span>;
+  if (updatedAt) return <span className="text-[8px] font-black text-[#4b5563] shrink-0">{formatUpdatedAt(updatedAt)} 更新</span>;
+  return null;
+};
+
 const App = () => {
   const [storedPassword, setStoredPassword] = useState(localStorage.getItem('asset_terminal_pass') || '');
   const [isLocked, setIsLocked] = useState(true);
@@ -108,6 +227,10 @@ const App = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [stockStatus, setStockStatus] = useState({}); // 每檔股票的更新狀態：'loading' | 'ok' | 'error'
+  const syncingRef = useRef(false);
+  const lastSyncAtRef = useRef(0);
+  const stockRequestRef = useRef({});
   const [lastUpdated, setLastUpdated] = useState('--:--:--');
   const [syncStep, setSyncStep] = useState(-1);
   const [editingId, setEditingId] = useState(null);
@@ -118,85 +241,73 @@ const App = () => {
   const [entryForm, setEntryForm] = useState({ type: 'cash', label: '', amount: '', currency: 'TWD', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1' });
   const [passForm, setPassForm] = useState({ old: '', new: '', confirm: '' });
 
+  const isBusy = isSyncing || Object.values(stockStatus).includes('loading');
+
   useEffect(() => {
     let interval;
-    if (isSyncing) {
+    if (isBusy) {
       setSyncStep(0);
       interval = setInterval(() => { setSyncStep(prev => (prev + 1) % 3); }, 400);
     } else { setSyncStep(-1); }
     return () => clearInterval(interval);
-  }, [isSyncing]);
+  }, [isBusy]);
 
-  const fetchWithProxy = async (url) => {
-    const proxies = [(u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&_=${Date.now()}`, (u) => `https://corsproxy.io/?${encodeURIComponent(u)}` ];
-    for (const getProxyUrl of proxies) {
-      try {
-        const res = await fetch(getProxyUrl(url));
-        if (!res.ok) continue;
-        const result = await res.json();
-        const finalData = typeof result.contents === 'string' ? JSON.parse(result.contents) : (result.contents || result);
-        if (finalData) return finalData;
-      } catch { continue; }
-    }
-    return null;
-  };
-
-  const fetchStockData = async (symbol) => {
-    try {
-      let sym = symbol.toUpperCase().trim();
-      if (!sym) return null;
-      if (/^\d{4,6}$/.test(sym)) { sym += '.TW'; }
-      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1y&events=div`;
-      const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${sym}&lang=zh-Hant-TW&region=TW`;
-      const priceData = await fetchWithProxy(yahooUrl);
-      const searchData = await fetchWithProxy(searchUrl);
-      const result = priceData?.chart?.result?.[0];
-      if (!result?.meta) return null;
-      const dividends = result?.events?.dividends;
-      let lastDiv = 0, divMonths = "";
-      if (dividends) {
-        const divArray = Object.values(dividends).sort((a, b) => b.date - a.date);
-        lastDiv = divArray[0]?.amount || 0;
-        divMonths = [...new Set(divArray.map(d => new Date(d.date * 1000).getMonth() + 1))].sort((a, b) => a - b).join(',');
+  // 在背景更新指定股票的報價，每檔抓到就先更新畫面，不會擋住其他操作；回傳成功的檔數
+  const refreshStocks = async (stocks) => {
+    if (!stocks.length) return 0;
+    const token = {};
+    stocks.forEach(s => { stockRequestRef.current[s.id] = token; });
+    setStockStatus(prev => ({ ...prev, ...Object.fromEntries(stocks.map(s => [s.id, 'loading'])) }));
+    let okCount = 0;
+    await runWithLimit(stocks, STOCK_CONCURRENCY, async (stock) => {
+      const quote = await fetchStockQuote(stock, { withName: !stock.label, withDividend: isDividendStale(stock) });
+      if (quote) {
+        okCount++;
+        // 抓取期間股票被刪除或代號被改掉時，丟棄這筆結果
+        setData(prev => ({ ...prev, stocks: prev.stocks.map(s => s.id === stock.id && s.symbol === stock.symbol ? applyQuote(s, quote) : s) }));
       }
-      let cnName = sym;
-      if (searchData?.quotes && searchData.quotes.length > 0) {
-        const match = searchData.quotes.find(q => q.symbol === sym) || searchData.quotes[0];
-        cnName = match.shortname || match.longname || sym;
-      }
-      const prevClose = getPreviousClose(result);
-      return { price: result.meta.regularMarketPrice, change: prevClose != null ? result.meta.regularMarketPrice - prevClose : 0, name: cnName, dividend: lastDiv, divMonth: divMonths, finalSymbol: sym };
-    } catch { return null; }
+      // 同一檔有更新的請求在跑時，以最新那次的結果為準
+      if (stockRequestRef.current[stock.id] === token) setStockStatus(prev => ({ ...prev, [stock.id]: quote ? 'ok' : 'error' }));
+    });
+    return okCount;
   };
 
   const syncFinanceData = async () => {
-    if (isSyncing) return;
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    lastSyncAtRef.current = Date.now();
     setIsSyncing(true);
     try {
-      // 匯率失敗不應中斷股價更新
-      try {
-        const rateRes = await fetch('https://open.er-api.com/v6/latest/USD');
-        const rateD = await rateRes.json();
-        if (rateD?.rates?.TWD) setExchangeRate(rateD.rates.TWD);
-      } catch (err) { console.error("Exchange rate sync failed:", err); }
-      const results = await Promise.all(data.stocks.map(async (stock) => [stock.id, await fetchStockData(stock.symbol)]));
-      const fetchedById = Object.fromEntries(results.filter(([, fetched]) => fetched));
-      // 合併到最新的 prev.stocks，同步期間刪除的股票不會被加回來；保留使用者自訂的名稱
-      setData(prev => ({ ...prev, stocks: prev.stocks.map(stock => {
-        const fetched = fetchedById[stock.id];
-        if (!fetched) return stock;
-        return { ...stock, price: fetched.price, change: fetched.change, label: stock.label || fetched.name, dividend: fetched.dividend || stock.dividend, divMonth: fetched.divMonth || stock.divMonth, amount: stock.shares * fetched.price };
-      }) }));
-      setLastUpdated(new Date().toLocaleTimeString([], { hour12: false }));
-    } catch (err) { console.error("Sync failed:", err); } finally { setIsSyncing(false); }
+      const [rate, okCount] = await Promise.all([fetchUsdTwdRate(), refreshStocks(data.stocks)]);
+      if (rate) setExchangeRate(rate);
+      if (okCount > 0 || data.stocks.length === 0) setLastUpdated(new Date().toLocaleTimeString([], { hour12: false }));
+    } catch (err) {
+      console.error("Sync failed:", err);
+    } finally {
+      syncingRef.current = false;
+      setIsSyncing(false);
+    }
   };
 
-  useEffect(() => { if (!isLocked) syncFinanceData(); }, [isLocked]);
+  const onUnlocked = useEffectEvent(() => { syncFinanceData(); });
+  const onAutoRefresh = useEffectEvent(() => {
+    if (document.visibilityState === 'visible' && Date.now() - lastSyncAtRef.current >= RESUME_REFRESH_MS) syncFinanceData();
+  });
+
+  // 解鎖時同步一次；之後每 5 分鐘自動更新，從背景切回 App 時也會更新
+  useEffect(() => {
+    if (isLocked) return;
+    onUnlocked();
+    const autoRefresh = () => onAutoRefresh();
+    const timer = setInterval(autoRefresh, AUTO_REFRESH_MS);
+    document.addEventListener('visibilitychange', autoRefresh);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', autoRefresh); };
+  }, [isLocked]);
   useEffect(() => { localStorage.setItem(DATA_KEY, JSON.stringify(data)); }, [data]);
 
   const totals = useMemo(() => {
     const cashTwd = data.cash.reduce((acc, curr) => acc + (curr.currency === 'USD' ? curr.amount * exchangeRate : curr.amount), 0);
-    const stockTwd = data.stocks.reduce((acc, curr) => acc + (curr.shares * curr.price * (isTwStock(curr.symbol) ? 1 : exchangeRate)), 0);
+    const stockTwd = data.stocks.reduce((acc, curr) => acc + (curr.shares * curr.price * stockFxRate(curr, exchangeRate)), 0);
     const debtTotal = data.debts.reduce((acc, curr) => acc + curr.amount, 0);
     const totalAssets = cashTwd + stockTwd;
     const tagStats = { '民生繳費': 0, '保險': 0, '貸款': 0, '訂閱': 0 };
@@ -225,7 +336,7 @@ const App = () => {
   const handleOpenModal = (cat = 'cash', item = null) => {
     if (item) {
       setEditingId(item.id);
-      setEntryForm({ ...entryForm, type: cat === 'monthlyExpenses' || cat === 'overview' || cat === 'expenses' ? 'expenses' : cat, label: item.label, amount: item.amount || '', currency: item.currency || 'TWD', symbol: item.symbol || '', shares: item.shares || '', price: item.price || 0, change: item.change || 0, dividend: item.dividend || '', divMonth: item.divMonth || '', month: item.month || '1', day: item.day || '1', tag: item.tag || '民生繳費', cycle: item.cycle || 'monthly', monthlyPayment: item.monthlyPayment || '', deductionDay: item.deductionDay || '1' });
+      setEntryForm({ ...entryForm, type: cat === 'monthlyExpenses' || cat === 'overview' || cat === 'expenses' ? 'expenses' : cat, label: item.label || '', amount: item.amount || '', currency: item.currency || 'TWD', symbol: item.symbol || '', shares: item.shares || '', price: item.price || 0, change: item.change || 0, dividend: item.dividend || '', divMonth: item.divMonth || '', month: item.month || '1', day: item.day || '1', tag: item.tag || '民生繳費', cycle: item.cycle || 'monthly', monthlyPayment: item.monthlyPayment || '', deductionDay: item.deductionDay || '1' });
     } else {
       setEditingId(null);
       setEntryForm({ type: cat === 'overview' ? 'cash' : (cat === 'expenses' ? 'expenses' : cat), label: '', amount: '', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', currency: 'TWD', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1' });
@@ -233,29 +344,26 @@ const App = () => {
     setIsModalOpen(true);
   };
 
-  const handleSaveEntry = async () => {
+  const canSaveEntry = entryForm.type === 'stocks' ? entryForm.symbol.trim() !== '' : entryForm.label.trim() !== '';
+
+  // 存檔一律立即完成；股票只有新增或改代號時才需要抓報價，且在背景進行
+  const handleSaveEntry = () => {
+    if (!canSaveEntry) return;
     const type = entryForm.type;
-    if (type !== 'stocks' && !entryForm.label) return;
-    let finalData = { ...entryForm };
-    let currentPrice = parseFloat(entryForm.price) || 0;
-    if (type === 'stocks') {
-       setIsSyncing(true);
-       const fetched = await fetchStockData(entryForm.symbol);
-       if (fetched) { 
-         finalData.price = fetched.price; finalData.change = fetched.change; 
-         finalData.label = entryForm.label || fetched.name; 
-         finalData.dividend = fetched.dividend; finalData.divMonth = fetched.divMonth; 
-         currentPrice = fetched.price;
-       }
-       setIsSyncing(false);
-    }
-    const sharesCount = parseFloat(finalData.shares) || 0;
-    const calculatedAmount = type === 'stocks' ? (sharesCount * currentPrice) : (parseFloat(finalData.amount) || 0);
-    const prevDebt = editingId ? data.debts.find(d => d.id === editingId) : null;
-    const itemData = { id: editingId || Math.random().toString(36).substr(2, 9), label: finalData.label, amount: calculatedAmount, currency: finalData.currency, symbol: finalData.symbol?.trim().toUpperCase() || '', shares: sharesCount, price: finalData.price || 0, change: finalData.change || 0, dividend: parseFloat(finalData.dividend) || 0, divMonth: finalData.divMonth, month: finalData.month, day: parseInt(finalData.day) || 1, tag: finalData.tag, cycle: finalData.cycle, monthlyPayment: parseFloat(finalData.monthlyPayment) || 0, deductionDay: parseInt(finalData.deductionDay) || 1, lastPaidMonth: prevDebt?.lastPaidMonth || 0, lastPaidYM: prevDebt?.lastPaidYM || '' };
     const key = type === 'expenses' ? 'monthlyExpenses' : type;
+    const prevItem = editingId ? data[key].find(i => i.id === editingId) : null;
+    const symbol = entryForm.symbol.trim().toUpperCase();
+    const needsQuote = type === 'stocks' && (!prevItem || prevItem.symbol !== symbol);
+    const price = needsQuote ? 0 : (parseFloat(entryForm.price) || 0);
+    const sharesCount = parseFloat(entryForm.shares) || 0;
+    const calculatedAmount = type === 'stocks' ? (sharesCount * price) : (parseFloat(entryForm.amount) || 0);
+    const itemData = { ...prevItem, id: editingId || Math.random().toString(36).substr(2, 9), label: entryForm.label, amount: calculatedAmount, currency: entryForm.currency, symbol, shares: sharesCount, price, change: needsQuote ? 0 : (entryForm.change || 0), dividend: needsQuote ? 0 : (parseFloat(entryForm.dividend) || 0), divMonth: needsQuote ? '' : entryForm.divMonth, month: entryForm.month, day: parseInt(entryForm.day) || 1, tag: entryForm.tag, cycle: entryForm.cycle, monthlyPayment: parseFloat(entryForm.monthlyPayment) || 0, deductionDay: parseInt(entryForm.deductionDay) || 1 };
+    // 換了代號就清掉舊代號的報價紀錄
+    if (needsQuote) { delete itemData.quoteSymbol; delete itemData.priceUpdatedAt; delete itemData.divUpdatedAt; }
     setData(prev => ({ ...prev, [key]: editingId ? prev[key].map(i => i.id === editingId ? itemData : i) : [...prev[key], itemData] }));
     setIsModalOpen(false);
+    if (!editingId) setActiveTab(type);
+    if (needsQuote) refreshStocks([itemData]);
   };
 
   const handleQuickPay = (id) => {
@@ -330,14 +438,14 @@ const App = () => {
       <main className="max-w-md mx-auto px-5 pb-48">
         <div className="flex flex-col gap-[10px] mb-5 mt-4">
           <div className="bg-[#506384] rounded-[6px] p-8 border border-white/[0.03] shadow-inner relative overflow-hidden">
-             <button onClick={syncFinanceData} className={`absolute top-4 right-4 text-white/50 hover:text-white transition-all ${isSyncing ? 'animate-spin' : ''}`}><RefreshCw size={16} /></button>
+             <button onClick={syncFinanceData} className={`absolute top-4 right-4 text-white/50 hover:text-white transition-all ${isBusy ? 'animate-spin' : ''}`}><RefreshCw size={16} /></button>
             <p className="font-sans text-[13px] font-black text-white/70 uppercase tracking-widest mb-4">Net Worth / 總資產淨值</p>
             <h2 className={`font-pixel text-3xl tracking-tighter text-white leading-none`}>{showValues ? formatTWD(totals.netWorth) : 'XXXXX'}</h2>
             <div className="flex justify-between items-center mt-6">
                <span className="font-sans text-[9px] font-bold text-white/50 uppercase tracking-widest">LAST SYNC: {lastUpdated}</span>
                <div className="flex gap-2">
                   {[0, 1, 2].map(i => (
-                    <div key={i} className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${syncStep === i ? 'bg-white shadow-[0_0_5px_#fff]' : (isSyncing ? 'bg-white/20' : 'bg-[#d8ef9d]')}`}></div>
+                    <div key={i} className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${syncStep === i ? 'bg-white shadow-[0_0_5px_#fff]' : (isBusy ? 'bg-white/20' : 'bg-[#d8ef9d]')}`}></div>
                   ))}
                </div>
             </div>
@@ -418,7 +526,7 @@ const App = () => {
                 const isPaid = activeTab === 'debts' && isPaidThisMonth(item, today);
                 // 扣款日 29～31 號在小月份改以月底當天計算
                 const isDebtEnabled = activeTab === 'debts' && item.monthlyPayment > 0 && curDay >= Math.min(item.deductionDay || 1, daysInMonth) && !isPaid;
-                const stockRate = activeTab === 'stocks' && !isTwStock(item.symbol) ? exchangeRate : 1;
+                const stockRate = activeTab === 'stocks' ? stockFxRate(item, exchangeRate) : 1;
 
                 return (
                   <div key={item.id} className="bg-[#1f1f21] p-4 rounded-[6px] flex justify-between items-center border border-white/[0.03] transition-all min-h-[100px] gap-2 overflow-hidden">
@@ -431,9 +539,10 @@ const App = () => {
                       </div>
                       
                       <div className="flex flex-col items-start text-left justify-center font-sans min-w-0">
-                        <p className="text-xs font-bold text-white leading-tight font-sans uppercase tracking-tight mb-1 font-sans truncate w-full">{item.label}</p>
+                        <p className="text-xs font-bold text-white leading-tight font-sans uppercase tracking-tight mb-1 font-sans truncate w-full">{item.label || item.symbol}</p>
                         <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                           {activeTab !== 'debts' && ( <p className="font-sans text-[8px] font-black text-[#4b5563] uppercase tracking-widest font-sans truncate">{activeTab === 'stocks' ? `${item.symbol}` : activeTab === 'cash' ? `${item.currency} NODE` : (item.tag || '')}</p> )}
+                          {activeTab === 'stocks' && <StockSyncBadge status={stockStatus[item.id]} updatedAt={item.priceUpdatedAt} />}
                           {activeTab === 'expenses' && ( <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-[2px] shrink-0 ${item.cycle === 'yearly' ? 'bg-[#ff5b41] text-white' : 'bg-[#506384] text-white font-black'}`}>{item.cycle === 'yearly' ? '年繳' : '月繳'}</span> )}
                           {activeTab === 'debts' && item.monthlyPayment > 0 && (
                             <div className="flex flex-col items-start gap-1 min-w-0">
@@ -582,7 +691,7 @@ const App = () => {
                   )}
                 </div>
               </div>
-              <div className="pt-6 pb-12 shrink-0 font-sans"><button onClick={handleSaveEntry} disabled={isSyncing} className="w-full h-16 rounded-[6px] bg-[#506384] text-white font-black text-lg transition-all shadow-xl flex items-center justify-center gap-3 font-black">COMMIT CHANGES</button></div>
+              <div className="pt-6 pb-12 shrink-0 font-sans"><button onClick={handleSaveEntry} disabled={!canSaveEntry} className="w-full h-16 rounded-[6px] bg-[#506384] text-white font-black text-lg transition-all disabled:opacity-40 shadow-xl flex items-center justify-center gap-3 font-black">COMMIT CHANGES</button></div>
            </div>
         </div>
       )}
