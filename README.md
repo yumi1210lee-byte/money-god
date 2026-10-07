@@ -52,6 +52,19 @@ npm run build    # 打包到 dist/
 npm run preview  # 預覽打包結果
 ```
 
+## 測試
+
+```bash
+npx playwright install chromium   # 第一次執行前，安裝測試用的瀏覽器
+npm test                          # 打包後在瀏覽器中跑全部測試（約 1 分鐘）
+npx playwright test --ui          # 用圖形介面逐項檢視測試過程
+```
+
+- 測試放在 `tests/e2e/`，以 iPhone 的螢幕寬度操作打包後的 App；另有一項在開發模式下執行。
+- 股價、匯率、字型等外部請求都由 `tests/e2e/fixtures.js` 以模擬資料回應，不需要網路，結果也不受市場變動影響。
+- 測試會使用 4173（預覽）與 5173（開發）兩個連接埠。
+- GitHub Actions 會在每次推送到 `main` 與每個 PR 自動執行 lint 與全部測試；失敗時可以在 Actions 頁面下載 `playwright-report`，裡面有失敗畫面的截圖與操作紀錄。
+
 ## 部署
 
 ```bash
