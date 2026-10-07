@@ -43,11 +43,15 @@ const PixelCoin = ({ size = 24 }) => {
   );
 };
 
-const formatTWD = (val) => new Intl.NumberFormat('zh-TW', { 
-  style: 'currency', 
-  currency: 'TWD', 
-  maximumFractionDigits: 0 
-}).format(val).replace('$', '$ ');
+const formatAmount = (val) => new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 0 }).format(Math.abs(val));
+const isNegative = (val) => Math.round(val) < 0;
+
+const formatTWD = (val) => `${isNegative(val) ? '-' : ''}NT$ ${formatAmount(val)}`;
+
+// 大字金額：幣別用小字標示，避免撐寬版面；數字不換行
+const Money = ({ value, currency = 'NT$' }) => (
+  <span className="whitespace-nowrap"><span className="font-sans font-black text-[max(11px,0.55em)] opacity-70">{isNegative(value) ? '-' : ''}{currency} </span>{formatAmount(value)}</span>
+);
 
 const DATA_KEY = 'money_god_v55';
 const DEFAULT_DATA = {
@@ -86,10 +90,12 @@ const loadFxRates = () => {
 // Yahoo 有些市場以輔幣報價，例如倫敦 GBp 是便士
 const SUBUNIT_CURRENCIES = { GBp: ['GBP', 100], ZAc: ['ZAR', 100], ILA: ['ILS', 100] };
 
-// 股價換算成台幣的匯率；舊資料還沒有幣別時，台股視為台幣、其他視為美元
+// 股票的報價幣別；舊資料還沒有幣別時，台股視為台幣、其他視為美元
+const stockCurrency = (stock) => stock.quoteCurrency || (isTwStock(stock.quoteSymbol || stock.symbol) ? 'TWD' : 'USD');
+
+// 股價換算成台幣的匯率
 const stockFxRate = (stock, fxRates) => {
-  const currency = stock.quoteCurrency || (isTwStock(stock.quoteSymbol || stock.symbol) ? 'TWD' : 'USD');
-  const [base, divisor] = SUBUNIT_CURRENCIES[currency] || [currency, 1];
+  const [base, divisor] = SUBUNIT_CURRENCIES[stockCurrency(stock)] || [stockCurrency(stock), 1];
   if (base === 'TWD') return 1 / divisor;
   return (fxRates[base] ? fxRates.TWD / fxRates[base] : fxRates.TWD) / divisor;
 };
@@ -101,6 +107,12 @@ const isIntInRange = (value, min, max) => {
 
 // 年月字串，例如 "2026-10"，用來判斷本月是否已繳款
 const toYearMonth = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+// 分期貸款：當月利息 = 剩餘本金 × 年利率 ÷ 12，月付金扣掉利息才是真正還到的本金；沒填利率時整筆月付金都算本金
+const principalPaid = (debt) => {
+  const interest = debt.amount * (parseFloat(debt.annualRate) || 0) / 100 / 12;
+  return Math.min(debt.amount, Math.max(0, Math.round((debt.monthlyPayment || 0) - interest)));
+};
 
 // 舊資料只有 lastPaidMonth（月份數字），沿用舊判斷直到下一次繳款寫入 lastPaidYM
 const isPaidThisMonth = (debt, today) => debt.lastPaidYM ? debt.lastPaidYM === toYearMonth(today) : debt.lastPaidMonth === today.getMonth() + 1;
@@ -230,6 +242,11 @@ const formatUpdatedAt = (ts) => {
   return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 };
 
+const UNDO_MS = 6000;
+const AUTO_LOCK_KEY = 'money_god_auto_lock';
+// 切到背景多久後自動上鎖（分鐘）；0 = 立即，-1 = 不自動上鎖
+const AUTO_LOCK_OPTIONS = [{ value: 0, label: '立即' }, { value: 1, label: '1 分鐘' }, { value: 5, label: '5 分鐘' }, { value: -1, label: '不自動' }];
+
 const BACKUP_APP = 'money-god';
 const LAST_BACKUP_KEY = 'money_god_last_backup';
 const PRE_IMPORT_KEY = 'money_god_v55_before_import';
@@ -272,9 +289,9 @@ const saveBackupFile = async (json, baseName) => {
 };
 
 const StockSyncBadge = ({ status, updatedAt }) => {
-  if (status === 'loading') return <span className="flex items-center gap-1 text-[8px] font-black text-[#506384] shrink-0"><RefreshCw size={8} className="animate-spin" />更新中</span>;
-  if (status === 'error') return <span className="text-[8px] font-black text-[#ff5b41] shrink-0">更新失敗{updatedAt ? ` · ${formatUpdatedAt(updatedAt)}` : ''}</span>;
-  if (updatedAt) return <span className="text-[8px] font-black text-[#4b5563] shrink-0">{formatUpdatedAt(updatedAt)} 更新</span>;
+  if (status === 'loading') return <span className="flex items-center gap-1 text-[11px] font-black text-[#506384] shrink-0"><RefreshCw size={8} className="animate-spin" />更新中</span>;
+  if (status === 'error') return <span className="text-[11px] font-black text-[#ff5b41] shrink-0">更新失敗{updatedAt ? ` · ${formatUpdatedAt(updatedAt)}` : ''}</span>;
+  if (updatedAt) return <span className="text-[11px] font-black text-[#4b5563] shrink-0">{formatUpdatedAt(updatedAt)} 更新</span>;
   return null;
 };
 
@@ -301,15 +318,23 @@ const App = () => {
 
   const [fxRates, setFxRates] = useState(loadFxRates);
   const usdTwd = fxRates.TWD;
-  const [entryForm, setEntryForm] = useState({ type: 'cash', label: '', amount: '', currency: 'TWD', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1' });
+  const [entryForm, setEntryForm] = useState({ type: 'cash', label: '', amount: '', currency: 'TWD', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1', annualRate: '' });
   const [passForm, setPassForm] = useState({ old: '', new: '', confirm: '' });
   const [lastBackupAt, setLastBackupAt] = useState(() => readStorage(LAST_BACKUP_KEY));
   const [hasPreImport, setHasPreImport] = useState(() => !!readStorage(PRE_IMPORT_KEY));
   const [pendingImport, setPendingImport] = useState(null); // 等待確認的匯入：{ data, exportedAt, title }
   const [backupMsg, setBackupMsg] = useState(null);
   const [passMsg, setPassMsg] = useState(null);
+  const [undo, setUndo] = useState(null); // 可復原的上一個動作：{ message, restore }
+  const undoTimerRef = useRef(null);
+  const [autoLockMin, setAutoLockMin] = useState(() => {
+    const saved = readStorage(AUTO_LOCK_KEY);
+    return AUTO_LOCK_OPTIONS.some(o => String(o.value) === saved) ? Number(saved) : 1;
+  });
 
   const isBusy = isSyncing || Object.values(stockStatus).includes('loading');
+  // 密碼是純數字（或第一次設定）時才用數字鍵盤，避免含英文字母的舊密碼打不出來
+  const passcodeInputMode = isFirstTime || /^\d+$/.test(storedPassword) ? 'numeric' : undefined;
 
   useEffect(() => {
     let interval;
@@ -407,10 +432,10 @@ const App = () => {
   const handleOpenModal = (cat = 'cash', item = null) => {
     if (item) {
       setEditingId(item.id);
-      setEntryForm({ ...entryForm, type: cat === 'monthlyExpenses' || cat === 'overview' || cat === 'expenses' ? 'expenses' : cat, label: item.label || '', amount: item.amount || '', currency: item.currency || 'TWD', symbol: item.symbol || '', shares: item.shares || '', price: item.price || 0, change: item.change || 0, dividend: item.dividend || '', divMonth: item.divMonth || '', month: item.month || '1', day: item.day || '1', tag: item.tag || '民生繳費', cycle: item.cycle || 'monthly', monthlyPayment: item.monthlyPayment || '', deductionDay: item.deductionDay || '1' });
+      setEntryForm({ ...entryForm, type: cat === 'monthlyExpenses' || cat === 'overview' || cat === 'expenses' ? 'expenses' : cat, label: item.label || '', amount: item.amount || '', currency: item.currency || 'TWD', symbol: item.symbol || '', shares: item.shares || '', price: item.price || 0, change: item.change || 0, dividend: item.dividend || '', divMonth: item.divMonth || '', month: item.month || '1', day: item.day || '1', tag: item.tag || '民生繳費', cycle: item.cycle || 'monthly', monthlyPayment: item.monthlyPayment || '', deductionDay: item.deductionDay || '1', annualRate: item.annualRate || '' });
     } else {
       setEditingId(null);
-      setEntryForm({ type: cat === 'overview' ? 'cash' : (cat === 'expenses' ? 'expenses' : cat), label: '', amount: '', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', currency: 'TWD', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1' });
+      setEntryForm({ type: cat === 'overview' ? 'cash' : (cat === 'expenses' ? 'expenses' : cat), label: '', amount: '', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', currency: 'TWD', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1', annualRate: '' });
     }
     setIsModalOpen(true);
   };
@@ -420,6 +445,7 @@ const App = () => {
     month: entryForm.type === 'expenses' && entryForm.cycle === 'yearly' && !isIntInRange(entryForm.month, 1, 12),
     day: entryForm.type === 'expenses' && !isIntInRange(entryForm.day, 1, 31),
     deductionDay: entryForm.type === 'debts' && !isIntInRange(entryForm.deductionDay, 1, 31),
+    annualRate: entryForm.type === 'debts' && entryForm.annualRate !== '' && !(Number(entryForm.annualRate) >= 0 && Number(entryForm.annualRate) <= 100),
   };
   const canSaveEntry = (entryForm.type === 'stocks' ? entryForm.symbol.trim() !== '' : entryForm.label.trim() !== '') && !Object.values(invalidField).some(Boolean);
 
@@ -434,7 +460,7 @@ const App = () => {
     const price = needsQuote ? 0 : (parseFloat(entryForm.price) || 0);
     const sharesCount = parseFloat(entryForm.shares) || 0;
     const calculatedAmount = type === 'stocks' ? (sharesCount * price) : (parseFloat(entryForm.amount) || 0);
-    const itemData = { ...prevItem, id: editingId || Math.random().toString(36).substr(2, 9), label: entryForm.label, amount: calculatedAmount, currency: type === 'cash' ? entryForm.currency : 'TWD', symbol, shares: sharesCount, price, change: needsQuote ? 0 : (entryForm.change || 0), dividend: needsQuote ? 0 : (parseFloat(entryForm.dividend) || 0), divMonth: needsQuote ? '' : entryForm.divMonth, month: entryForm.month, day: parseInt(entryForm.day) || 1, tag: entryForm.tag, cycle: entryForm.cycle, monthlyPayment: parseFloat(entryForm.monthlyPayment) || 0, deductionDay: parseInt(entryForm.deductionDay) || 1 };
+    const itemData = { ...prevItem, id: editingId || Math.random().toString(36).substr(2, 9), label: entryForm.label, amount: calculatedAmount, currency: type === 'cash' ? entryForm.currency : 'TWD', symbol, shares: sharesCount, price, change: needsQuote ? 0 : (entryForm.change || 0), dividend: needsQuote ? 0 : (parseFloat(entryForm.dividend) || 0), divMonth: needsQuote ? '' : entryForm.divMonth, month: entryForm.month, day: parseInt(entryForm.day) || 1, tag: entryForm.tag, cycle: entryForm.cycle, monthlyPayment: parseFloat(entryForm.monthlyPayment) || 0, deductionDay: parseInt(entryForm.deductionDay) || 1, annualRate: parseFloat(entryForm.annualRate) || 0 };
     // 換了代號就清掉舊代號的報價紀錄
     if (needsQuote) { delete itemData.quoteSymbol; delete itemData.priceUpdatedAt; delete itemData.divUpdatedAt; }
     setData(prev => ({ ...prev, [key]: editingId ? prev[key].map(i => i.id === editingId ? itemData : i) : [...prev[key], itemData] }));
@@ -443,16 +469,40 @@ const App = () => {
     if (needsQuote) refreshStocks([itemData]);
   };
 
+  const showUndo = (message, restore) => {
+    clearTimeout(undoTimerRef.current);
+    setUndo({ message, restore });
+    undoTimerRef.current = setTimeout(() => setUndo(null), UNDO_MS);
+  };
+
+  const handleUndo = () => {
+    clearTimeout(undoTimerRef.current);
+    undo?.restore();
+    setUndo(null);
+  };
+
   const handleQuickPay = (id) => {
+    const debt = data.debts.find(d => d.id === id);
+    if (!debt) return;
     const today = new Date();
-    const curMonth = today.getMonth() + 1;
+    const before = { amount: debt.amount, lastPaidMonth: debt.lastPaidMonth, lastPaidYM: debt.lastPaidYM };
     // 同時保留 lastPaidMonth，讓舊版程式讀到的資料仍然正確
-    setData(prev => ({ ...prev, debts: prev.debts.map(debt => debt.id === id ? { ...debt, amount: Math.max(0, debt.amount - (debt.monthlyPayment || 0)), lastPaidMonth: curMonth, lastPaidYM: toYearMonth(today) } : debt) }));
+    setData(prev => ({ ...prev, debts: prev.debts.map(d => d.id === id ? { ...d, amount: d.amount - principalPaid(d), lastPaidMonth: today.getMonth() + 1, lastPaidYM: toYearMonth(today) } : d) }));
+    showUndo(`已記錄「${debt.label}」本月還款，本金減少 ${formatTWD(principalPaid(debt))}`, () => {
+      setData(prev => ({ ...prev, debts: prev.debts.map(d => d.id === id ? { ...d, ...before } : d) }));
+    });
   };
 
   const deleteItem = (cat, id) => {
     const key = cat === 'expenses' ? 'monthlyExpenses' : cat;
+    const index = data[key].findIndex(i => i.id === id);
+    if (index < 0) return;
+    const item = data[key][index];
     setData(prev => ({ ...prev, [key]: prev[key].filter(i => i.id !== id) }));
+    // 復原時放回原本的位置
+    showUndo(`已刪除「${item.label || item.symbol}」`, () => {
+      setData(prev => prev[key].some(i => i.id === id) ? prev : { ...prev, [key]: [...prev[key].slice(0, index), item, ...prev[key].slice(index)] });
+    });
   };
 
   const closeSettings = () => {
@@ -461,6 +511,39 @@ const App = () => {
     setBackupMsg(null);
     setPassMsg(null);
   };
+
+  // 上鎖時一併隱藏金額、關閉所有視窗
+  const lockApp = () => {
+    setIsLocked(true);
+    setShowValues(false);
+    setIsModalOpen(false);
+    closeSettings();
+    setUndo(null);
+  };
+
+  const handleAutoLockChange = (value) => {
+    setAutoLockMin(value);
+    localStorage.setItem(AUTO_LOCK_KEY, String(value));
+  };
+
+  const onAutoLock = useEffectEvent(() => lockApp());
+
+  // 切到背景超過設定時間，回來時自動上鎖；設定「立即」時一離開就上鎖
+  useEffect(() => {
+    if (isLocked || autoLockMin < 0) return;
+    let hiddenAt = null;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        if (autoLockMin === 0) onAutoLock();
+      } else {
+        if (hiddenAt !== null && Date.now() - hiddenAt >= autoLockMin * 60 * 1000) onAutoLock();
+        hiddenAt = null;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [isLocked, autoLockMin]);
 
   const handleExportBackup = async () => {
     const now = new Date();
@@ -545,12 +628,12 @@ const App = () => {
           </div>
           <div className="text-center mb-12">
             <h1 className="font-pixel text-4xl tracking-tighter mb-3 text-white uppercase font-bold">Money God</h1>
-            <p className="font-sans text-[#4b5563] text-[10px] tracking-[0.2em] uppercase font-black font-sans">SECURED TERMINAL</p>
+            <p className="font-sans text-[#4b5563] text-[11px] tracking-[0.2em] uppercase font-black font-sans">SECURED TERMINAL</p>
           </div>
           <div className="w-full max-w-xs space-y-[10px]">
             {isFirstTime && <p className="font-sans text-[11px] text-[#ff5b41] text-center mb-2 font-bold uppercase tracking-wider animate-pulse italic">Please set a passcode (at least 4 digits) / 請設定 4 位數以上密碼</p>}
-            <input type="password" placeholder={isFirstTime ? "SET PASSCODE" : "PASSCODE"} className={`font-pixel w-full bg-[#1f1f21] border ${authError ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-6 h-14 focus:outline-none text-center text-2xl tracking-[0.5em] placeholder:text-gray-800 font-pixel font-pixel`} value={authInput} onChange={(e) => { setAuthInput(e.target.value); setAuthError(false); }} onKeyDown={(e) => e.key === 'Enter' && (isFirstTime ? handleSetInitialPassword() : handleUnlock())} />
-            {authError && !isFirstTime && <p className="font-sans text-[10px] text-[#ff5b41] text-center font-black uppercase tracking-[0.2em] animate-bounce">Incorrect Passcode</p>}
+            <input type="password" inputMode={passcodeInputMode} placeholder={isFirstTime ? "SET PASSCODE" : "PASSCODE"} className={`font-pixel w-full bg-[#1f1f21] border ${authError ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-6 h-14 focus:outline-none text-center text-2xl tracking-[0.5em] placeholder:text-gray-800 font-pixel font-pixel`} value={authInput} onChange={(e) => { setAuthInput(e.target.value); setAuthError(false); }} onKeyDown={(e) => e.key === 'Enter' && (isFirstTime ? handleSetInitialPassword() : handleUnlock())} />
+            {authError && !isFirstTime && <p className="font-sans text-[11px] text-[#ff5b41] text-center font-black uppercase tracking-[0.2em] animate-bounce">Incorrect Passcode</p>}
             <button onClick={isFirstTime ? handleSetInitialPassword : handleUnlock} className="font-sans w-full bg-[#506384] text-white h-14 rounded-[6px] font-black text-base active:opacity-80 transition-all uppercase shadow-lg shadow-[#506384]/20 tracking-widest font-sans font-black">{isFirstTime ? 'Confirm Security' : 'Start Session'}</button>
           </div>
         </div>
@@ -561,12 +644,12 @@ const App = () => {
           <div className="flex items-center justify-center animate-float-nav">
             <PixelCoin size={32} />
           </div>
-          <div><span className="font-pixel text-lg block leading-none text-white uppercase tracking-tighter">Money God</span><span className="font-sans text-[10px] text-[#4b5563] font-bold tracking-widest uppercase italic">Terminal Active</span></div>
+          <div><span className="font-pixel text-lg block leading-none text-white uppercase tracking-tighter">Money God</span><span className="font-sans text-[11px] text-[#4b5563] font-bold tracking-widest uppercase italic">Terminal Active</span></div>
         </div>
         <div className="flex gap-[10px]">
           <button onClick={() => setShowValues(!showValues)} className="w-11 h-11 flex items-center justify-center bg-[#1f1f21] rounded-[6px] text-[#4b5563] border border-white/5">{showValues ? <Eye size={18} /> : <EyeOff size={18} />}</button>
           <button onClick={() => setIsSettingsOpen(true)} className="w-11 h-11 flex items-center justify-center bg-[#1f1f21] rounded-[6px] text-[#4b5563] border border-white/5"><Settings size={18} /></button>
-          <button onClick={() => setIsLocked(true)} className="w-11 h-11 flex items-center justify-center bg-[#1f1f21] rounded-[6px] text-[#506384] border border-white/5"><Lock size={18} /></button>
+          <button aria-label="上鎖" onClick={lockApp} className="w-11 h-11 flex items-center justify-center bg-[#1f1f21] rounded-[6px] text-[#506384] border border-white/5"><Lock size={18} /></button>
         </div>
       </nav>
 
@@ -575,9 +658,9 @@ const App = () => {
           <div className="bg-[#506384] rounded-[6px] p-8 border border-white/[0.03] shadow-inner relative overflow-hidden">
              <button onClick={syncFinanceData} className={`absolute top-4 right-4 text-white/50 hover:text-white transition-all ${isBusy ? 'animate-spin' : ''}`}><RefreshCw size={16} /></button>
             <p className="font-sans text-[13px] font-black text-white/70 uppercase tracking-widest mb-4">Net Worth / 總資產淨值</p>
-            <h2 className={`font-pixel text-3xl tracking-tighter text-white leading-none`}>{showValues ? formatTWD(totals.netWorth) : 'XXXXX'}</h2>
+            <h2 className={`font-pixel text-3xl tracking-tighter text-white leading-none`}>{showValues ? <Money value={totals.netWorth} /> : 'XXXXX'}</h2>
             <div className="flex justify-between items-center mt-6">
-               <span className="font-sans text-[9px] font-bold text-white/50 uppercase tracking-widest">LAST SYNC: {lastUpdated}</span>
+               <span className="font-sans text-[11px] font-bold text-white/50 uppercase tracking-widest">LAST SYNC: {lastUpdated}</span>
                <div className="flex gap-2">
                   {[0, 1, 2].map(i => (
                     <div key={i} className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${syncStep === i ? 'bg-white shadow-[0_0_5px_#fff]' : (isBusy ? 'bg-white/20' : 'bg-[#d8ef9d]')}`}></div>
@@ -592,8 +675,8 @@ const App = () => {
               <div className="bg-gray-700 transition-all duration-700" style={{ width: `${totals.debtRatio}%` }}></div>
             </div>
             <div className="grid grid-cols-2 gap-4 text-center font-sans font-black">
-              <div><p className="text-[9px] text-[#4b5563] uppercase mb-1">Asset 占比</p><p className="font-pixel text-lg text-white leading-none">{Math.round(totals.assetRatio)}%</p></div>
-              <div><p className="text-[9px] text-[#4b5563] uppercase mb-1">Debt 占比</p><p className="font-pixel text-lg text-white leading-none">{Math.round(totals.debtRatio)}%</p></div>
+              <div><p className="text-[11px] text-[#4b5563] uppercase mb-1">Asset 占比</p><p className="font-pixel text-lg text-white leading-none">{Math.round(totals.assetRatio)}%</p></div>
+              <div><p className="text-[11px] text-[#4b5563] uppercase mb-1">Debt 占比</p><p className="font-pixel text-lg text-white leading-none">{Math.round(totals.debtRatio)}%</p></div>
             </div>
           </div>
         </div>
@@ -612,31 +695,31 @@ const App = () => {
               <div className="grid grid-cols-2 gap-[10px]">
                 <div className="bg-[#506384] rounded-[6px] p-5 border border-white/[0.03] shadow-inner font-sans font-black">
                   <span className="text-[11px] text-white/70 block mb-2 uppercase tracking-widest">Assets / 總資產</span>
-                  <span className={`font-pixel text-sm text-white`}>{showValues ? formatTWD(totals.assets) : 'XXXXX'}</span>
+                  <span className={`font-pixel text-[13px] tracking-tighter text-white`}>{showValues ? <Money value={totals.assets} /> : 'XXXXX'}</span>
                 </div>
                 <div className="bg-[#1f1f21] rounded-[6px] p-5 border border-white/[0.03] font-sans font-black">
                   <span className="text-[11px] text-[#4b5563] block mb-2 uppercase tracking-widest">Debts / 總負債</span>
-                  <span className={`font-pixel text-sm text-white`}>{showValues ? formatTWD(totals.debts) : 'XXXXX'}</span>
+                  <span className={`font-pixel text-[13px] tracking-tighter text-white`}>{showValues ? <Money value={totals.debts} /> : 'XXXXX'}</span>
                 </div>
                 <div className="bg-[#506384] rounded-[6px] p-5 border border-white/[0.03] shadow-inner font-sans font-black">
                   <span className="text-[11px] text-white/70 block mb-2 uppercase tracking-widest">Cash / 現金總額</span>
-                  <span className={`font-pixel text-sm text-white`}>{showValues ? formatTWD(totals.cashTwd) : 'XXXXX'}</span>
+                  <span className={`font-pixel text-[13px] tracking-tighter text-white`}>{showValues ? <Money value={totals.cashTwd} /> : 'XXXXX'}</span>
                 </div>
                 <div className="bg-[#1f1f21] rounded-[6px] p-5 border border-white/[0.03] font-sans font-black">
                   <span className="text-[11px] text-[#4b5563] block mb-2 uppercase tracking-widest">Stock / 股票總額</span>
-                  <span className={`font-pixel text-sm text-white`}>{showValues ? formatTWD(totals.stockTwd) : 'XXXXX'}</span>
+                  <span className={`font-pixel text-[13px] tracking-tighter text-white`}>{showValues ? <Money value={totals.stockTwd} /> : 'XXXXX'}</span>
                 </div>
               </div>
               <div className="bg-[#1f1f21] rounded-[6px] p-7 border border-white/[0.03]">
                 <div className="flex justify-between items-center mb-6 font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black"><h3 className="text-[13px] text-[#506384] uppercase tracking-widest font-black font-sans font-black">Monthly Expense / 每月支出總額</h3></div>
                 <div className="flex items-baseline gap-2 mb-8 font-black">
-                  <span className={`font-pixel text-4xl tracking-tighter text-white`}>{showValues ? formatTWD(totals.monthlyExpenses) : 'XXXXX'}</span>
-                  <span className="text-[10px] text-[#4b5563] uppercase tracking-widest font-black font-sans">/ MO</span>
+                  <span className={`font-pixel text-4xl tracking-tighter text-white`}>{showValues ? <Money value={totals.monthlyExpenses} /> : 'XXXXX'}</span>
+                  <span className="text-[11px] text-[#4b5563] uppercase tracking-widest font-black font-sans">/ MO</span>
                 </div>
                 <div className="space-y-4 pt-4 border-t border-white/[0.03] font-sans">
                   {totals.tagRatios.map(tag => (
                     <div key={tag.name} className="space-y-1.5">
-                      <div className="flex justify-between text-[10px] font-black uppercase"><span className="text-white/60">{tag.name}</span><span className="text-white">{Math.round(tag.ratio)}%</span></div>
+                      <div className="flex justify-between text-[11px] font-black uppercase"><span className="text-white/60">{tag.name}</span><span className="text-white">{Math.round(tag.ratio)}%</span></div>
                       <div className="w-full h-1 bg-[#050505] rounded-full overflow-hidden"><div className="h-full bg-[#506384] transition-all duration-1000" style={{ width: `${tag.ratio}%` }}></div></div>
                     </div>
                   ))}
@@ -651,7 +734,7 @@ const App = () => {
                  <span className={`font-sans text-[11px] block mb-2 font-black uppercase tracking-widest ${activeTab === 'cash' || activeTab === 'stocks' ? 'text-white/70' : 'text-[#4b5563]'}`}>
                    {activeTab === 'cash' ? 'Cash Total / 現金總額' : activeTab === 'stocks' ? 'Stock Total / 股票總額' : activeTab === 'debts' ? 'Total Debts / 總負債' : 'Monthly Expense / 每月支出總額'}
                  </span>
-                 <span className="font-pixel text-2xl text-white font-black">{showValues ? formatTWD(activeTab === 'cash' ? totals.cashTwd : activeTab === 'stocks' ? totals.stockTwd : activeTab === 'debts' ? totals.debts : totals.monthlyExpenses) : 'XXXXX'}</span>
+                 <span className="font-pixel text-2xl text-white font-black">{showValues ? <Money value={activeTab === 'cash' ? totals.cashTwd : activeTab === 'stocks' ? totals.stockTwd : activeTab === 'debts' ? totals.debts : totals.monthlyExpenses} /> : 'XXXXX'}</span>
               </div>
 
               {data[activeTab === 'expenses' ? 'monthlyExpenses' : activeTab].map(item => {
@@ -664,43 +747,47 @@ const App = () => {
                 const stockRate = activeTab === 'stocks' ? stockFxRate(item, fxRates) : 1;
 
                 return (
-                  <div key={item.id} className="bg-[#1f1f21] p-4 rounded-[6px] flex justify-between items-center border border-white/[0.03] transition-all min-h-[100px] gap-2 overflow-hidden">
-                    <div className="flex items-center gap-3 min-w-0">
+                  <div key={item.id} className="bg-[#1f1f21] p-4 rounded-[6px] flex flex-col gap-3 border border-white/[0.03] transition-all overflow-hidden">
+                   <div className="flex justify-between items-center gap-2 min-h-[68px]">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="w-11 h-11 rounded-[6px] bg-[#050505] flex items-center justify-center text-[#506384] border border-white/5 shadow-inner font-pixel text-[13px] font-bold overflow-hidden shrink-0">
                          {activeTab === 'cash' ? ( <span>{item.currency === 'TWD' ? 'NT' : 'US'}</span> ) : 
                           activeTab === 'stocks' ? ( item.change >= 0 ? <TrendingUp size={22} className="text-up" /> : <TrendingDown size={22} className="text-down" /> ) : 
-                          activeTab === 'debts' ? ( <button onClick={() => handleQuickPay(item.id)} disabled={!isDebtEnabled} className={`w-full h-full flex items-center justify-center transition-all ${isDebtEnabled ? 'bg-[#ff5b41]/10 text-[#ff5b41] active:bg-[#ff5b41] active:text-white' : 'text-[#333] cursor-not-allowed'}`}><Check size={20} strokeWidth={isDebtEnabled ? 4 : 2} /></button> ) : 
-                          ( <div className="flex flex-col items-center justify-center leading-none">{item.cycle === 'yearly' ? ( <> <span className="text-[10px] opacity-60 mb-0.5 font-pixel">{String(item.month).padStart(2, '0')}</span> <span className="text-[13px] font-bold font-pixel">{String(item.day).padStart(2, '0')}</span> </> ) : ( <span className="text-[13px] font-bold font-pixel">{String(item.day).padStart(2, '0')}</span> )}</div> )}
+                          activeTab === 'debts' ? ( <button aria-label="記錄本月已繳" onClick={() => handleQuickPay(item.id)} disabled={!isDebtEnabled} className={`w-full h-full flex items-center justify-center transition-all ${isDebtEnabled ? 'bg-[#ff5b41]/10 text-[#ff5b41] active:bg-[#ff5b41] active:text-white' : 'text-[#333] cursor-not-allowed'}`}><Check size={20} strokeWidth={isDebtEnabled ? 4 : 2} /></button> ) : 
+                          ( <div className="flex flex-col items-center justify-center leading-none">{item.cycle === 'yearly' ? ( <> <span className="text-[11px] opacity-60 mb-0.5 font-pixel">{String(item.month).padStart(2, '0')}</span> <span className="text-[13px] font-bold font-pixel">{String(item.day).padStart(2, '0')}</span> </> ) : ( <span className="text-[13px] font-bold font-pixel">{String(item.day).padStart(2, '0')}</span> )}</div> )}
                       </div>
                       
-                      <div className="flex flex-col items-start text-left justify-center font-sans min-w-0">
+                      <div className="flex flex-col items-start text-left justify-center font-sans min-w-0 flex-1">
                         <p className="text-xs font-bold text-white leading-tight font-sans uppercase tracking-tight mb-1 font-sans truncate w-full">{item.label || item.symbol}</p>
                         <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                          {activeTab !== 'debts' && ( <p className="font-sans text-[8px] font-black text-[#4b5563] uppercase tracking-widest font-sans truncate">{activeTab === 'stocks' ? `${item.symbol}` : activeTab === 'cash' ? `${item.currency} NODE` : (item.tag || '')}</p> )}
+                          {activeTab !== 'debts' && ( <p className="font-sans text-[11px] font-black text-[#4b5563] uppercase tracking-widest font-sans truncate">{activeTab === 'stocks' ? `${item.symbol}` : activeTab === 'cash' ? `${item.currency} NODE` : (item.tag || '')}</p> )}
                           {activeTab === 'stocks' && <StockSyncBadge status={stockStatus[item.id]} updatedAt={item.priceUpdatedAt} />}
-                          {activeTab === 'expenses' && ( <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-[2px] shrink-0 ${item.cycle === 'yearly' ? 'bg-[#ff5b41] text-white' : 'bg-[#506384] text-white font-black'}`}>{item.cycle === 'yearly' ? '年繳' : '月繳'}</span> )}
-                          {activeTab === 'debts' && item.monthlyPayment > 0 && (
-                            <div className="flex flex-col items-start gap-1 min-w-0">
-                               <span className="text-[8px] font-black text-[#506384] uppercase bg-[#050505]/50 px-1.5 py-0.5 rounded-[2px] font-black truncate">Pay {formatTWD(item.monthlyPayment)}</span>
-                               <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-[2px] shrink-0 ${isPaid ? 'bg-[#d8ef9d] text-black font-black' : 'bg-[#1f1f21] text-[#4b5563] border border-white/5 font-black'}`}>{isPaid ? 'PAID' : `Day ${item.deductionDay}`}</span>
-                            </div>
-                          )}
+                          {activeTab === 'expenses' && ( <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-[2px] shrink-0 ${item.cycle === 'yearly' ? 'bg-[#ff5b41] text-white' : 'bg-[#506384] text-white font-black'}`}>{item.cycle === 'yearly' ? '年繳' : '月繳'}</span> )}
                         </div>
-                        {activeTab === 'stocks' && showValues && (
-                          <div className="flex flex-col gap-0.5 mt-2 p-1.5 bg-[#050505]/40 rounded-[4px] border border-white/[0.02] w-full min-w-0 font-black">
-                             <div className="flex items-center gap-1.5 text-[#506384]"><DollarSign size={8} /><span className="text-[8px] font-sans font-black uppercase tracking-tight truncate">Div: {formatTWD(item.shares * item.dividend * stockRate)}</span></div>
-                             <div className="flex items-center gap-1.5 text-[#4b5563] font-sans font-black"><Calendar size={8} /><span className="text-[8px] font-sans font-black uppercase tracking-tight truncate">Mo: {item.divMonth || '---'}</span></div>
-                          </div>
-                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-3 shrink-0 h-full font-sans font-bold ml-1">
                       <div className="flex flex-col text-right justify-center font-pixel min-w-[70px]">
-                        <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (activeTab === 'cash' && item.currency === 'USD' ? `$ ${item.amount.toLocaleString()}` : formatTWD(activeTab === 'stocks' ? (item.shares * item.price * stockRate) : item.amount)) : 'XXXXX'}</span>
-                        {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[8px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change * stockRate)}</span></div> <span className="text-[7px] font-sans text-gray-700 uppercase font-black">@ {item.price?.toFixed(1) || '---'}</span> </div> )}
+                        <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (activeTab === 'cash' && item.currency === 'USD' ? <Money value={item.amount} currency="US$" /> : <Money value={activeTab === 'stocks' ? (item.shares * item.price * stockRate) : item.amount} />) : 'XXXXX'}</span>
+                        {activeTab === 'cash' && item.currency === 'USD' && showValues && <span className="text-[11px] font-sans font-black text-[#4b5563] mt-1.5 whitespace-nowrap">≈ {formatTWD(item.amount * usdTwd)}</span>}
+                        {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[11px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change * stockRate)}</span></div> <span className="text-[11px] font-sans text-gray-500 uppercase font-black whitespace-nowrap">@ {item.price?.toFixed(stockCurrency(item) === 'TWD' ? 1 : 2) || '---'}{stockCurrency(item) !== 'TWD' ? ` ${stockCurrency(item)}` : ''}</span> </div> )}
                       </div>
-                      <div className="flex flex-col gap-1.5 transition-all items-center justify-center bg-[#050505]/50 p-1.5 rounded-[4px] shrink-0 font-bold"><button onClick={() => handleOpenModal(activeTab, item)} className="text-[#444] hover:text-[#506384] transition-colors"><Edit2 size={13} /></button><div className="w-3 h-[1px] bg-white/[0.05]"></div><button onClick={() => deleteItem(activeTab, item.id)} className="text-[#444] hover:text-rose-600 transition-colors"><Trash2 size={13} /></button></div>
+                      <div className="flex flex-col gap-1.5 shrink-0"><button aria-label="編輯" onClick={() => handleOpenModal(activeTab, item)} className="w-10 h-10 flex items-center justify-center rounded-[4px] bg-[#050505]/50 text-[#666] active:text-[#506384] transition-colors"><Edit2 size={16} /></button><button aria-label="刪除" onClick={() => deleteItem(activeTab, item.id)} className="w-10 h-10 flex items-center justify-center rounded-[4px] bg-[#050505]/50 text-[#666] active:text-rose-600 transition-colors"><Trash2 size={16} /></button></div>
                     </div>
+                   </div>
+                    {activeTab === 'debts' && item.monthlyPayment > 0 && (
+                      <div className="flex items-center justify-between gap-3 px-3 py-2 bg-[#050505]/40 rounded-[4px] text-[11px] font-sans font-black">
+                        <span className="text-[#506384] min-w-0">月付 {formatTWD(item.monthlyPayment)}{item.annualRate > 0 ? ` · 年利率 ${item.annualRate}%` : ''}</span>
+                        <span className={`uppercase px-1.5 py-0.5 rounded-[2px] shrink-0 ${isPaid ? 'bg-[#d8ef9d] text-black' : 'text-[#4b5563] border border-white/5'}`}>{isPaid ? 'PAID' : `Day ${item.deductionDay}`}</span>
+                      </div>
+                    )}
+                    {/* 股利資訊放在獨立一行，避免擠在名稱欄位裡被截斷 */}
+                    {activeTab === 'stocks' && showValues && (
+                      <div className="flex items-center justify-between gap-3 px-3 py-2 bg-[#050505]/40 rounded-[4px] text-[11px] font-sans font-black uppercase tracking-tight">
+                        <span className="flex items-center gap-1.5 text-[#506384] min-w-0 truncate"><DollarSign size={12} className="shrink-0" />Div: {formatTWD(item.shares * item.dividend * stockRate)}</span>
+                        <span className="flex items-center gap-1.5 text-[#4b5563] shrink-0"><Calendar size={12} />Mo: {item.divMonth || '---'}</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -718,13 +805,20 @@ const App = () => {
         </button>
       </div>
 
+      {undo && !isLocked && (
+        <div role="status" className="fixed bottom-32 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-40px)] max-w-sm bg-[#1f1f21] border border-white/10 rounded-[6px] shadow-2xl flex items-center justify-between gap-3 pl-4 pr-1 py-1 font-sans">
+          <span className="text-xs font-bold text-white leading-snug py-2">{undo.message}</span>
+          <button onClick={handleUndo} className="h-10 px-4 text-[13px] font-black text-[#d8ef9d] shrink-0">復原</button>
+        </div>
+      )}
+
       {isSettingsOpen && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/95 backdrop-blur-md">
           <div className="w-full max-w-md bg-[#050505] rounded-t-[6px] p-5 border-t border-white/10 h-[75vh] flex flex-col shadow-2xl font-sans">
             <div className="flex justify-between items-center mb-8 shrink-0 px-2 font-pixel">
               <div className="font-pixel">
                 <h2 className="text-2xl text-white uppercase tracking-tighter leading-none">Settings</h2>
-                <p className="text-[10px] text-[#506384] font-bold tracking-[0.1em] mt-2 font-sans uppercase font-black font-sans">Configuration</p>
+                <p className="text-[11px] text-[#506384] font-bold tracking-[0.1em] mt-2 font-sans uppercase font-black font-sans">Configuration</p>
               </div>
               <button onClick={closeSettings} className="w-12 h-12 bg-[#1f1f21] rounded-[6px] flex items-center justify-center text-[#4b5563] border border-white/5 shadow-inner"><X size={24}/></button>
             </div>
@@ -752,11 +846,20 @@ const App = () => {
                 {hasPreImport && !pendingImport && <button onClick={handleRequestUndoImport} className="text-[11px] text-[#4b5563] underline font-bold px-1">還原上一次匯入前的資料</button>}
               </div>
               <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-4 border border-white/[0.03]">
+                <label className="text-[14px] font-black text-[#506384] uppercase tracking-widest px-1 font-sans">Auto Lock / 自動上鎖</label>
+                <p className="text-[11px] text-[#4b5563] font-bold px-1 leading-relaxed">切到其他 App 超過這段時間，回來時需要重新輸入密碼。上鎖時會自動隱藏金額。</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {AUTO_LOCK_OPTIONS.map(o => (
+                    <button key={o.value} onClick={() => handleAutoLockChange(o.value)} className={`h-11 rounded-[4px] font-black text-xs transition-all ${autoLockMin === o.value ? 'bg-[#506384] text-white' : 'bg-[#050505] text-[#4b5563]'}`}>{o.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-4 border border-white/[0.03]">
                 <label className="text-[14px] font-black text-[#506384] uppercase tracking-widest px-1 font-sans">Change Passcode / 更改密碼</label>
                 <div className="space-y-2">
-                  <input type="password" placeholder="Old Passcode" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.old} onChange={e => { setPassForm({...passForm, old: e.target.value}); setPassMsg(null); }} />
-                  <input type="password" placeholder="New Passcode" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.new} onChange={e => { setPassForm({...passForm, new: e.target.value}); setPassMsg(null); }} />
-                  <input type="password" placeholder="Confirm New" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.confirm} onChange={e => { setPassForm({...passForm, confirm: e.target.value}); setPassMsg(null); }} />
+                  <input type="password" inputMode={passcodeInputMode} placeholder="Old Passcode" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.old} onChange={e => { setPassForm({...passForm, old: e.target.value}); setPassMsg(null); }} />
+                  <input type="password" inputMode={passcodeInputMode} placeholder="New Passcode" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.new} onChange={e => { setPassForm({...passForm, new: e.target.value}); setPassMsg(null); }} />
+                  <input type="password" inputMode={passcodeInputMode} placeholder="Confirm New" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.confirm} onChange={e => { setPassForm({...passForm, confirm: e.target.value}); setPassMsg(null); }} />
                 </div>
                 {passMsg && <p className={`text-[11px] font-black px-1 ${passMsg.type === 'error' ? 'text-[#ff5b41]' : 'text-[#d8ef9d]'}`}>{passMsg.text}</p>}
                 <button onClick={handleChangePassword} className="w-full h-12 bg-[#506384] text-white rounded-[6px] font-black text-xs uppercase tracking-widest mt-2 shadow-lg font-black font-sans font-black">Update Security</button>
@@ -770,14 +873,14 @@ const App = () => {
         <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/95 backdrop-blur-md font-sans">
            <div className="w-full max-w-md bg-[#050505] rounded-t-[6px] p-5 border-t border-white/10 h-[85vh] flex flex-col shadow-2xl overflow-hidden font-sans">
               <div className="flex justify-between items-center mb-8 shrink-0 px-2 font-pixel">
-                <div><h2 className="text-2xl text-white uppercase tracking-tighter leading-none font-pixel">{editingId ? 'EDIT ENTRY' : 'NEW ENTRY'}</h2><p className="text-[10px] text-[#506384] font-bold mt-2 uppercase">Transaction Module Enabled</p></div>
+                <div><h2 className="text-2xl text-white uppercase tracking-tighter leading-none font-pixel">{editingId ? 'EDIT ENTRY' : 'NEW ENTRY'}</h2><p className="text-[11px] text-[#506384] font-bold mt-2 uppercase">Transaction Module Enabled</p></div>
                 <button onClick={() => setIsModalOpen(false)} className="w-12 h-12 bg-[#1f1f21] rounded-[6px] flex items-center justify-center text-[#4b5563] border border-white/5 shadow-inner"><X size={24}/></button>
               </div>
               <div className="flex-1 overflow-y-auto no-scrollbar pb-10 space-y-[10px] px-1 font-sans">
                 {!editingId && (
                   <div className="grid grid-cols-4 gap-[10px] bg-[#1f1f21] p-1.5 rounded-[6px] mb-4">
                     {[{ id: 'cash', icon: Wallet, label: '現金' }, { id: 'stocks', icon: TrendingUp, label: '股票' }, { id: 'debts', icon: ArrowDownCircle, label: '負債' }, { id: 'expenses', icon: Calendar, label: '支出' }].map(t => (
-                      <button key={t.id} onClick={() => setEntryForm({...entryForm, type: t.id})} className={`py-5 rounded-[6px] flex flex-col items-center gap-2 border transition-all ${entryForm.type === t.id ? 'bg-[#506384] text-white border-transparent shadow-lg' : 'bg-transparent text-[#4b5563] border-transparent'}`}><t.icon size={18} /><span className="text-[10px] font-sans font-black uppercase font-black font-sans font-black">{t.label}</span></button>
+                      <button key={t.id} onClick={() => setEntryForm({...entryForm, type: t.id})} className={`py-5 rounded-[6px] flex flex-col items-center gap-2 border transition-all ${entryForm.type === t.id ? 'bg-[#506384] text-white border-transparent shadow-lg' : 'bg-transparent text-[#4b5563] border-transparent'}`}><t.icon size={18} /><span className="text-[11px] font-sans font-black uppercase font-black font-sans font-black">{t.label}</span></button>
                     ))}
                   </div>
                 )}
@@ -794,12 +897,12 @@ const App = () => {
                   {entryForm.type === 'stocks' ? (
                      <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
                        <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Shares / 持有股數</label>
-                       <input type="number" placeholder="0.00" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel" value={entryForm.shares} onChange={e => setEntryForm({...entryForm, shares: e.target.value})} />
+                       <input type="number" inputMode="decimal" placeholder="0.00" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel" value={entryForm.shares} onChange={e => setEntryForm({...entryForm, shares: e.target.value})} />
                      </div>
                   ) : (
                      <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
                        <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Amount / 主要金額</label>
-                       <input type="number" placeholder="0.00" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel" value={entryForm.amount} onChange={e => setEntryForm({...entryForm, amount: e.target.value})} />
+                       <input type="number" inputMode="decimal" placeholder="0.00" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel" value={entryForm.amount} onChange={e => setEntryForm({...entryForm, amount: e.target.value})} />
                      </div>
                   )}
 
@@ -829,8 +932,8 @@ const App = () => {
                         </div>
                       </div>
                       <div className="bg-[#1f1f21] p-6 rounded-[6px] grid grid-cols-2 gap-5 border border-white/[0.03] font-sans">
-                        {entryForm.cycle === 'yearly' && (<div><label className="text-[14px] font-black text-[#506384] uppercase font-black">Month / 月</label><input type="number" min="1" max="12" className={`font-pixel w-full bg-[#050505] border ${invalidField.month ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.month} onChange={e => setEntryForm({...entryForm, month: e.target.value})} />{invalidField.month && <p className="text-[10px] font-black text-[#ff5b41] mt-1">請輸入 1–12</p>}</div>)}
-                        <div className={entryForm.cycle === 'monthly' ? 'col-span-2' : ''}><label className="text-[14px] font-black text-[#506384] uppercase font-black">Day / 日</label><input type="number" min="1" max="31" className={`font-pixel w-full bg-[#050505] border ${invalidField.day ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.day} onChange={e => setEntryForm({...entryForm, day: e.target.value})} />{invalidField.day && <p className="text-[10px] font-black text-[#ff5b41] mt-1">請輸入 1–31</p>}</div>
+                        {entryForm.cycle === 'yearly' && (<div><label className="text-[14px] font-black text-[#506384] uppercase font-black">Month / 月</label><input type="number" inputMode="numeric" min="1" max="12" className={`font-pixel w-full bg-[#050505] border ${invalidField.month ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.month} onChange={e => setEntryForm({...entryForm, month: e.target.value})} />{invalidField.month && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入 1–12</p>}</div>)}
+                        <div className={entryForm.cycle === 'monthly' ? 'col-span-2' : ''}><label className="text-[14px] font-black text-[#506384] uppercase font-black">Day / 日</label><input type="number" inputMode="numeric" min="1" max="31" className={`font-pixel w-full bg-[#050505] border ${invalidField.day ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.day} onChange={e => setEntryForm({...entryForm, day: e.target.value})} />{invalidField.day && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入 1–31</p>}</div>
                       </div>
                     </div>
                   )}
@@ -839,12 +942,18 @@ const App = () => {
                     <div className="grid grid-cols-2 gap-4 font-sans font-black">
                        <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03]">
                           <label className="text-[12px] font-black text-[#506384] uppercase">Installment / 月付</label>
-                          <input type="number" placeholder="0" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-4 h-12 text-white text-sm font-pixel" value={entryForm.monthlyPayment} onChange={e => setEntryForm({...entryForm, monthlyPayment: e.target.value})} />
+                          <input type="number" inputMode="decimal" placeholder="0" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-4 h-12 text-white text-sm font-pixel" value={entryForm.monthlyPayment} onChange={e => setEntryForm({...entryForm, monthlyPayment: e.target.value})} />
                        </div>
                        <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03]">
                           <label className="text-[12px] font-black text-[#506384] uppercase">Pay Day / 扣款日</label>
-                          <input type="number" min="1" max="31" className={`font-pixel w-full bg-[#050505] border ${invalidField.deductionDay ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-12 text-white text-sm font-pixel`} value={entryForm.deductionDay} onChange={e => setEntryForm({...entryForm, deductionDay: e.target.value})} />
-                          {invalidField.deductionDay && <p className="text-[10px] font-black text-[#ff5b41] mt-1">請輸入 1–31</p>}
+                          <input type="number" inputMode="numeric" min="1" max="31" className={`font-pixel w-full bg-[#050505] border ${invalidField.deductionDay ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-12 text-white text-sm font-pixel`} value={entryForm.deductionDay} onChange={e => setEntryForm({...entryForm, deductionDay: e.target.value})} />
+                          {invalidField.deductionDay && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入 1–31</p>}
+                       </div>
+                       <div className="col-span-2 bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03]">
+                          <label className="text-[12px] font-black text-[#506384] uppercase">Rate / 年利率 %（選填）</label>
+                          <input type="number" inputMode="decimal" placeholder="例如 2.1" className={`font-pixel w-full bg-[#050505] border ${invalidField.annualRate ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-12 text-white text-sm font-pixel`} value={entryForm.annualRate} onChange={e => setEntryForm({...entryForm, annualRate: e.target.value})} />
+                          {invalidField.annualRate && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入 0–100</p>}
+                          <p className="text-[11px] font-bold text-[#4b5563] leading-relaxed">填寫後，按「已繳」只會扣掉月付金中還本金的部分（月付金 − 剩餘本金 × 年利率 ÷ 12）。不填則整筆月付金都算本金。</p>
                        </div>
                     </div>
                   )}
