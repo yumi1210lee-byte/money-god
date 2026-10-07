@@ -258,8 +258,9 @@ const App = () => {
       </main>
 
       <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50">
-        <button 
-          onClick={() => handleOpenModal(activeTab)} 
+        <button
+          aria-label="新增項目"
+          onClick={() => handleOpenModal(activeTab)}
           className="bg-[#506384] text-white w-16 h-16 rounded-[8px] shadow-[0_8px_30px_rgb(80,99,132,0.4)] flex items-center justify-center active:scale-95 hover:scale-105 transition-all border border-white/10"
         >
           <Plus size={32} strokeWidth={3} />

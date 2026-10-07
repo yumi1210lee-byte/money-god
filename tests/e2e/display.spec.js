@@ -1,4 +1,4 @@
-import { test, expect, openApp, unlock, waitForSync, storedData, storedItem, row, entryModal, openTab, toggleValues, openSettings, closeSettings, openNewEntry, textOf } from './fixtures.js';
+import { test, expect, openApp, unlock, waitForSync, storedData, storedItem, row, openTab, toggleValues, openSettings, closeSettings, openNewEntry, closeEntryModal, textOf } from './fixtures.js';
 
 test('金額標示 NT$ / US$，美元帳戶顯示換算台幣，外國股價標示幣別', async ({ page }) => {
   await openApp(page, { data: {
@@ -86,7 +86,7 @@ test('所有畫面的文字至少 11 px，長名稱不會蓋到金額', async ({
   for (const type of ['現金', '股票', '負債', '支出']) {
     await openNewEntry(page, type);
     screens.push({ screen: `新增${type}`, ...(await smallestText()) });
-    await entryModal(page).locator('button:has(svg.lucide-x)').click();
+    await closeEntryModal(page);
   }
   expect(screens.filter(s => s.size < 11)).toEqual([]);
   expect(errors).toEqual([]);
@@ -96,4 +96,28 @@ test('所有畫面的文字至少 11 px，長名稱不會蓋到金額', async ({
   const name = await debtRow.locator('p').first().boundingBox();
   const value = await debtRow.locator('.font-pixel.text-sm').first().boundingBox();
   expect(name.x + name.width).toBeLessThanOrEqual(value.x);
+});
+
+test('只有圖示的按鈕都有名稱（VoiceOver 讀得出來）', async ({ page }) => {
+  await openApp(page, { data: {
+    cash: [{ id: 'c', label: 'A', amount: 1, currency: 'TWD' }],
+    stocks: [{ id: 's', symbol: '2330', label: '台積電', shares: 1, price: 1, change: 0, dividend: 0, divMonth: '' }],
+    debts: [{ id: 'd', label: '房貸', amount: 100, monthlyPayment: 10, deductionDay: 1 }],
+    monthlyExpenses: [{ id: 'e', label: '保險', amount: 1, day: 1, tag: '保險', cycle: 'monthly' }],
+  } });
+  const unnamedButtons = () => page.evaluate(() => [...document.querySelectorAll('button')]
+    .filter(b => !b.textContent.trim() && !b.getAttribute('aria-label'))
+    .map(b => b.outerHTML.slice(0, 80)));
+  const found = [];
+  await unlock(page);
+  for (const tab of ['總覽', '現金', '股票', '負債', '支出']) {
+    await openTab(page, tab);
+    found.push(...await unnamedButtons());
+  }
+  await openSettings(page);
+  found.push(...await unnamedButtons());
+  await closeSettings(page);
+  await openNewEntry(page);
+  found.push(...await unnamedButtons());
+  expect(found).toEqual([]);
 });

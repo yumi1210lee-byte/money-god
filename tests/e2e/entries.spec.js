@@ -1,4 +1,4 @@
-import { test, expect, openApp, unlock, waitForSync, storedData, row, entryModal, settingsPanel, commitButton, openTab, toggleValues, openSettings, closeSettings, openNewEntry, textOf, undoToast, lockButton } from './fixtures.js';
+import { test, expect, openApp, unlock, waitForSync, storedData, row, entryModal, settingsPanel, commitButton, openTab, toggleValues, openSettings, closeSettings, openNewEntry, closeEntryModal, textOf, undoToast, lockButton } from './fixtures.js';
 
 test('刪除後可以在 6 秒內復原，並放回原本位置', async ({ page }) => {
   const cash = ['第一筆', '第二筆', '第三筆'].map((label, i) => ({ id: `c${i}`, label, amount: i + 1, currency: 'TWD' }));
@@ -95,7 +95,7 @@ test('數字欄位使用數字鍵盤', async ({ page }) => {
   await expect(field('input[placeholder="0"]')).toHaveAttribute('inputmode', 'decimal');
   await expect(field('input[placeholder="例如 2.1"]')).toHaveAttribute('inputmode', 'decimal');
   await expect(field('input[max="31"]')).toHaveAttribute('inputmode', 'numeric');
-  await entryModal(page).locator('button:has(svg.lucide-x)').click();
+  await closeEntryModal(page);
 
   await openSettings(page);
   await expect(settingsPanel(page).locator('input[placeholder="New Passcode"]')).toHaveAttribute('inputmode', 'numeric');

@@ -15,7 +15,7 @@ export const EntryModal = ({ initialForm, isEditing, onSave, onClose }) => {
        <div className="w-full max-w-md bg-[#050505] rounded-t-[6px] p-5 border-t border-white/10 h-[85vh] flex flex-col shadow-2xl overflow-hidden font-sans">
           <div className="flex justify-between items-center mb-8 shrink-0 px-2 font-pixel">
             <div><h2 className="text-2xl text-white uppercase tracking-tighter leading-none font-pixel">{isEditing ? 'EDIT ENTRY' : 'NEW ENTRY'}</h2><p className="text-[11px] text-[#506384] font-bold mt-2 uppercase">Transaction Module Enabled</p></div>
-            <button onClick={onClose} className="w-12 h-12 bg-[#1f1f21] rounded-[6px] flex items-center justify-center text-[#4b5563] border border-white/5 shadow-inner"><X size={24}/></button>
+            <button aria-label="關閉" onClick={onClose} className="w-12 h-12 bg-[#1f1f21] rounded-[6px] flex items-center justify-center text-[#4b5563] border border-white/5 shadow-inner"><X size={24}/></button>
           </div>
           <div className="flex-1 overflow-y-auto no-scrollbar pb-10 space-y-[10px] px-1 font-sans">
             {!isEditing && (

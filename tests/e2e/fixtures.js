@@ -106,14 +106,15 @@ export const commitButton = page => entryModal(page).getByRole('button', { name:
 export const undoToast = page => page.getByRole('status');
 
 export const openTab = (page, name) => page.locator('main').getByRole('button', { name, exact: true }).first().click();
-export const toggleValues = page => page.locator('nav button').nth(0).click();
-export const openSettings = page => page.locator('nav button').nth(1).click();
-export const closeSettings = page => settingsPanel(page).locator('button:has(svg.lucide-x)').click();
+export const toggleValues = page => page.getByRole('button', { name: /^(顯示金額|隱藏金額)$/ }).click();
+export const openSettings = page => page.getByRole('button', { name: '設定', exact: true }).click();
+export const closeSettings = page => settingsPanel(page).getByRole('button', { name: '關閉設定', exact: true }).click();
+export const closeEntryModal = page => entryModal(page).getByRole('button', { name: '關閉', exact: true }).click();
 export const lockButton = page => page.getByRole('button', { name: '上鎖' });
-export const refreshButton = page => page.locator('main button').first();
+export const refreshButton = page => page.getByRole('button', { name: '重新整理', exact: true });
 
 export async function openNewEntry(page, type) {
-  await page.locator('div.fixed.bottom-10 button').click();
+  await page.getByRole('button', { name: '新增項目', exact: true }).click();
   if (type) await entryModal(page).getByRole('button', { name: type, exact: true }).click();
 }
 

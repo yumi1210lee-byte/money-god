@@ -77,7 +77,7 @@ export const SettingsPanel = ({ data, storedPassword, passcodeInputMode, autoLoc
             <h2 className="text-2xl text-white uppercase tracking-tighter leading-none">Settings</h2>
             <p className="text-[11px] text-[#506384] font-bold tracking-[0.1em] mt-2 font-sans uppercase font-black font-sans">Configuration</p>
           </div>
-          <button onClick={onClose} className="w-12 h-12 bg-[#1f1f21] rounded-[6px] flex items-center justify-center text-[#4b5563] border border-white/5 shadow-inner"><X size={24}/></button>
+          <button aria-label="關閉設定" onClick={onClose} className="w-12 h-12 bg-[#1f1f21] rounded-[6px] flex items-center justify-center text-[#4b5563] border border-white/5 shadow-inner"><X size={24}/></button>
         </div>
         <div className="flex-1 overflow-y-auto no-scrollbar space-y-[10px] font-sans">
           <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-4 border border-white/[0.03]">
