@@ -1,10 +1,16 @@
 // 股票損益與股利（皆換算成台幣）
 import { stockFxRate, annualDividendPerShare } from './quotes.js';
 
-// 有填平均成本、且已經抓到股價時才計算損益；否則回傳 null（避免顯示成 −100%）
+// 有填成本、且已經抓到股價時才計算損益；否則回傳 null（避免顯示成 −100%）
 export const stockPnl = (stock, fxRates) => {
-  if (!(stock.costPrice > 0) || !(stock.price > 0)) return null;
+  if (!(stock.price > 0)) return null;
   const rate = stockFxRate(stock, fxRates);
+  // 總投入金額（台幣）：直接和目前台幣市值相比，損益包含匯率變動
+  if (stock.costTotal > 0) {
+    const pnl = stock.price * stock.shares * rate - stock.costTotal;
+    return { cost: stock.costTotal, pnl, pct: (pnl / stock.costTotal) * 100 };
+  }
+  if (!(stock.costPrice > 0)) return null;
   return {
     cost: stock.costPrice * stock.shares * rate,
     pnl: (stock.price - stock.costPrice) * stock.shares * rate,

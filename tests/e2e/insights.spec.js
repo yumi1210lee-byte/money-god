@@ -88,6 +88,52 @@ test('外國股票以報價幣別計算成本，虧損以跌色顯示；沒填�
   await expect(summary).toContainText('已填成本 2／3 檔');
 });
 
+test('成本可改填台幣總投入金額，損益包含匯率變動；可以切回成交均價', async ({ page }) => {
+  await openApp(page, { data: { stocks: [{ ...apple, costPrice: 150 }] } });
+  await unlock(page);
+  await waitForSync(page);
+  await toggleValues(page);
+  await openTab(page, '股票');
+  await row(page, 'APPLE').getByRole('button', { name: '編輯' }).click();
+  const modes = entryModal(page).getByRole('group', { name: '成本填法' });
+  await expect(modes.getByRole('button', { name: '成交均價' })).toHaveAttribute('aria-pressed', 'true');
+  await modes.getByRole('button', { name: '總投入金額' }).click();
+  await expect(modes.getByRole('button', { name: '總投入金額' })).toHaveAttribute('aria-pressed', 'true');
+  const total = entryModal(page).locator('input[placeholder="投入的台幣總額"]');
+  await expect(total).toHaveAttribute('inputmode', 'decimal');
+  await total.fill('-1');
+  await expect(commitButton(page)).toBeDisabled();
+  await expect(entryModal(page)).toContainText('請輸入 0 以上的數字');
+  await total.fill('66000');
+  await commitButton(page).click();
+
+  const saved = (await storedData(page)).stocks[0];
+  expect(saved.costTotal).toBe(66000);
+  expect(saved.costPrice).toBe(0);
+  // 市值 200 × 10 × 30 = 60,000；60,000 − 66,000 = −6,000（−9.1%）
+  const text = await textOf(row(page, 'APPLE'));
+  expect(text).toContain('總投入 NT$ 66,000');
+  expect(text).toContain('損益 -NT$ 6,000（-9.1%）');
+  await openTab(page, '總覽');
+  await expect(card(page, '股票摘要')).toContainText('-NT$ 6,000');
+  await expect(card(page, '股票摘要')).toContainText('已填成本 1／1 檔');
+
+  // 再次編輯時停在總投入金額；切回成交均價存檔後只留成交均價
+  await openTab(page, '股票');
+  await row(page, 'APPLE').getByRole('button', { name: '編輯' }).click();
+  await expect(modes.getByRole('button', { name: '總投入金額' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(total).toHaveValue('66000');
+  await modes.getByRole('button', { name: '成交均價' }).click();
+  await entryModal(page).locator('input[placeholder="每股買進均價"]').fill('180');
+  await commitButton(page).click();
+  const back = (await storedData(page)).stocks[0];
+  expect(back.costPrice).toBe(180);
+  expect(back.costTotal).toBe(0);
+  const backText = await textOf(row(page, 'APPLE'));
+  expect(backText).toContain('成本 180.00 USD');
+  expect(backText).toContain('損益 +NT$ 6,000（+11.1%）'); // (200 − 180) × 10 × 30
+});
+
 // ---------- #8 今日損益與本月待繳 ----------
 
 test('總覽顯示今日股票損益', async ({ page }) => {
@@ -97,7 +143,7 @@ test('總覽顯示今日股票損益', async ({ page }) => {
   await toggleValues(page);
   // 1000 × 50 + 10 × 2 × 30 = 50,600
   await expect(card(page, '股票摘要')).toContainText('+NT$ 50,600');
-  await expect(card(page, '股票摘要')).toContainText('在股票的編輯畫面填入平均成本即可計算');
+  await expect(card(page, '股票摘要')).toContainText('在股票的編輯畫面填入成交均價或總投入金額即可計算');
 });
 
 test('本月待繳：列出還沒到期的支出與還沒記錄已繳的貸款，同一筆貸款只列一次', async ({ page }) => {

@@ -2,12 +2,15 @@ import { useState } from 'react';
 import { X, Wallet, TrendingUp, ArrowDownCircle, Calendar } from 'lucide-react';
 import { EXPENSE_TAGS, getInvalidFields, canSaveEntry } from '../lib/entries.js';
 
+const COST_MODES = [{ id: 'price', label: '成交均價' }, { id: 'total', label: '總投入金額' }];
+
 // 新增／編輯項目的表單
 export const EntryModal = ({ initialForm, isEditing, onSave, onClose }) => {
   const [entryForm, setEntryForm] = useState(initialForm);
   // 月份、日期超出範圍時標紅並停用送出
   const invalidField = getInvalidFields(entryForm);
   const canSave = canSaveEntry(entryForm);
+  const costMode = entryForm.costMode === 'total' ? 'total' : 'price';
   const handleSave = () => { if (canSave) onSave(entryForm); };
 
   return (
@@ -42,10 +45,21 @@ export const EntryModal = ({ initialForm, isEditing, onSave, onClose }) => {
                    <input type="number" inputMode="decimal" placeholder="0.00" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel" value={entryForm.shares} onChange={e => setEntryForm({...entryForm, shares: e.target.value})} />
                  </div>
                  <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
-                   <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Cost / 平均成本（選填）</label>
-                   <input type="number" inputMode="decimal" placeholder="每股買進均價" className={`font-pixel w-full bg-[#050505] border ${invalidField.costPrice ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.costPrice} onChange={e => setEntryForm({...entryForm, costPrice: e.target.value})} />
-                   {invalidField.costPrice && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入 0 以上的數字</p>}
-                   <p className="text-[11px] font-bold text-[#4b5563] leading-relaxed">以股票報價的幣別填寫（美股填美元）。填寫後會顯示未實現損益與報酬率。</p>
+                   <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Cost / 成本（選填）</label>
+                   <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="成本填法">
+                     {COST_MODES.map(m => (
+                       <button key={m.id} onClick={() => setEntryForm({...entryForm, costMode: m.id})} aria-pressed={costMode === m.id} className={`h-10 rounded-[4px] text-[12px] font-black transition-all ${costMode === m.id ? 'bg-[#506384] text-white' : 'bg-[#050505] text-[#6b7280]'}`}>{m.label}</button>
+                     ))}
+                   </div>
+                   {costMode === 'total' ? (
+                     <input key="costTotal" type="number" inputMode="decimal" placeholder="投入的台幣總額" className={`font-pixel w-full bg-[#050505] border ${invalidField.costTotal ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.costTotal} onChange={e => setEntryForm({...entryForm, costTotal: e.target.value})} />
+                   ) : (
+                     <input key="costPrice" type="number" inputMode="decimal" placeholder="每股買進均價" className={`font-pixel w-full bg-[#050505] border ${invalidField.costPrice ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.costPrice} onChange={e => setEntryForm({...entryForm, costPrice: e.target.value})} />
+                   )}
+                   {(invalidField.costPrice || invalidField.costTotal) && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入 0 以上的數字</p>}
+                   <p className="text-[11px] font-bold text-[#4b5563] leading-relaxed">{costMode === 'total'
+                     ? '填買進至今實際扣款的台幣總額（含手續費），適合台幣交割、定期定額。損益會包含匯率變動；每次加碼後記得同時更新股數和總投入金額。'
+                     : '以股票報價的幣別填寫（美股填美元）。填寫後會顯示未實現損益與報酬率。'}</p>
                  </div>
                 </>
               ) : (
