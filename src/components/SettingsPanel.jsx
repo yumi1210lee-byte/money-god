@@ -5,17 +5,17 @@ import { AUTO_LOCK_OPTIONS, LAST_BACKUP_KEY, PRE_IMPORT_KEY, readStorage } from 
 import { BACKUP_APP, parseBackup, countItems, saveBackupFile } from '../lib/backup.js';
 
 // 設定：資料備份、自動上鎖、更改密碼
-export const SettingsPanel = ({ data, storedPassword, passcodeInputMode, autoLockMin, onAutoLockChange, onReplaceData, onChangePasscode, onClose }) => {
+export const SettingsPanel = ({ data, history, storedPassword, passcodeInputMode, autoLockMin, onAutoLockChange, onReplaceData, onChangePasscode, onClose }) => {
   const [passForm, setPassForm] = useState({ old: '', new: '', confirm: '' });
   const [passMsg, setPassMsg] = useState(null);
   const [lastBackupAt, setLastBackupAt] = useState(() => readStorage(LAST_BACKUP_KEY));
   const [hasPreImport, setHasPreImport] = useState(() => !!readStorage(PRE_IMPORT_KEY));
-  const [pendingImport, setPendingImport] = useState(null); // 等待確認的匯入：{ data, exportedAt, title }
+  const [pendingImport, setPendingImport] = useState(null); // 等待確認的匯入：{ data, history, exportedAt, title }
   const [backupMsg, setBackupMsg] = useState(null);
 
   const handleExportBackup = async () => {
     const now = new Date();
-    const json = JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: now.toISOString(), data }, null, 2);
+    const json = JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: now.toISOString(), data, history }, null, 2);
     try {
       await saveBackupFile(json, `money-god-backup-${toYearMonth(now)}-${String(now.getDate()).padStart(2, '0')}`);
       localStorage.setItem(LAST_BACKUP_KEY, now.toISOString());
@@ -32,8 +32,8 @@ export const SettingsPanel = ({ data, storedPassword, passcodeInputMode, autoLoc
     e.target.value = ''; // 讓同一個檔案可以再選一次
     if (!file) return;
     try {
-      const { data: imported, exportedAt } = parseBackup(await file.text());
-      setPendingImport({ data: imported, exportedAt, title: `匯入「${file.name}」` });
+      const { data: imported, history: importedHistory, exportedAt } = parseBackup(await file.text());
+      setPendingImport({ data: imported, history: importedHistory, exportedAt, title: `匯入「${file.name}」` });
       setBackupMsg(null);
     } catch {
       setPendingImport(null);
@@ -55,7 +55,7 @@ export const SettingsPanel = ({ data, storedPassword, passcodeInputMode, autoLoc
   const handleConfirmImport = () => {
     localStorage.setItem(PRE_IMPORT_KEY, JSON.stringify(data));
     setHasPreImport(true);
-    onReplaceData(pendingImport.data);
+    onReplaceData(pendingImport.data, pendingImport.history);
     setPendingImport(null);
     setBackupMsg({ type: 'ok', text: '資料已取代' });
   };

@@ -23,7 +23,7 @@ test('同步後更新股價與當日漲跌，並保留自訂名稱', async ({ pa
   const text = (await textOf(row(page, 'Apple Inc.'))).toUpperCase();
   expect(text).toContain('NT$ 60,000');   // 10 × 200 × 30
   expect(text).toContain('+NT$ 600');     // 10 × 2 × 30
-  expect(text).toContain('DIV: NT$ 75');  // 10 × 0.25 × 30
+  expect(text).toContain('年股利 NT$ 75'); // 10 × 0.25 × 30
   expect(text).toContain('更新');
 });
 

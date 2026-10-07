@@ -13,6 +13,10 @@ export const QUOTES = {
   '7203.T': { price: 3000, prev: 2950, gmt: 32400, day: twDay, name: 'Toyota', div: 40, ccy: 'JPY' },
   'VOD.L': { price: 70, prev: 69, gmt: 3600, day: usDay, name: 'Vodafone', div: 2, ccy: 'GBp' },
   'AAPL': { price: 200, prev: 198, gmt: -14400, day: usDay, name: 'Apple Inc.', div: 0.25, ccy: 'USD' },
+  // 一年配息多次：近 12 個月每個月份只算最近一次，2025/9 那筆和 2026/9 同月份，不列入
+  '0056.TW': { price: 38, prev: 37.5, gmt: 28800, day: twDay, name: '元大高股息', ccy: 'TWD', divs: [
+    ['2026-09-15', 1.0], ['2026-06-15', 0.8], ['2026-03-15', 0.7], ['2025-12-15', 0.6], ['2025-10-20', 0.5], ['2025-09-20', 0.4],
+  ] },
 };
 
 // 以美元為基準的模擬匯率：1 USD = 30 TWD
@@ -28,7 +32,10 @@ function yahooResponse(target) {
     const q = QUOTES[decodeURIComponent(chartMatch[1])];
     if (!q) return { status: 404, json: notFound };
     if (url.searchParams.get('interval') === '1mo') {
-      return { status: 200, json: { chart: { result: [{ meta: { regularMarketPrice: q.price }, events: { dividends: { a: { amount: q.div, date: q.day - 60 * DAY } } } }] } } };
+      const events = q.divs
+        ? Object.fromEntries(q.divs.map(([date, amount]) => { const t = Date.parse(`${date}T01:00:00Z`) / 1000; return [t, { amount, date: t }]; }))
+        : { a: { amount: q.div, date: q.day - 60 * DAY } };
+      return { status: 200, json: { chart: { result: [{ meta: { regularMarketPrice: q.price }, events: { dividends: events } }] } } };
     }
     return { status: 200, json: { chart: { result: [{
       meta: { currency: q.ccy, regularMarketPrice: q.price, chartPreviousClose: q.prev - 100, gmtoffset: q.gmt, regularMarketTime: q.day + 4 * 3600 },

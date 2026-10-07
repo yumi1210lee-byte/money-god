@@ -6,6 +6,7 @@ import { STOCK_CONCURRENCY, AUTO_REFRESH_MS, RESUME_REFRESH_MS, runWithLimit, fe
 import { principalPaid } from './lib/debts.js';
 import { buildEntryForm, buildItem, categoryKey } from './lib/entries.js';
 import { computeTotals } from './lib/totals.js';
+import { HISTORY_KEY, loadHistory, upsertSnapshot, mergeHistory, toDateKey } from './lib/history.js';
 import { LockScreen } from './components/LockScreen.jsx';
 import { Header } from './components/Header.jsx';
 import { SummaryCards } from './components/SummaryCards.jsx';
@@ -37,6 +38,7 @@ const App = () => {
   const [entryInitialForm, setEntryInitialForm] = useState(() => buildEntryForm());
 
   const [data, setData] = useState(loadData);
+  const [history, setHistory] = useState(loadHistory);
 
   const [fxRates, setFxRates] = useState(loadFxRates);
   const usdTwd = fxRates.TWD;
@@ -118,6 +120,18 @@ const App = () => {
 
   const totals = useMemo(() => computeTotals(data, fxRates), [data, fxRates]);
 
+  const saveHistory = (next) => {
+    setHistory(next);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+  };
+
+  // 解鎖時記下今天的淨資產（每天一筆，同一天以最後一次為準，例如同步到最新股價後會再更新）
+  useEffect(() => {
+    if (isLocked) return;
+    const next = upsertSnapshot(history, toDateKey(new Date()), totals);
+    if (next !== history) saveHistory(next);
+  }, [isLocked, totals, history]);
+
   const handleSetPasscode = (passcode) => {
     localStorage.setItem('asset_terminal_pass', passcode);
     setStoredPassword(passcode);
@@ -182,9 +196,10 @@ const App = () => {
     });
   };
 
-  // 匯入備份後取代全部資料，並重新抓股價
-  const handleReplaceData = (newData) => {
+  // 匯入備份後取代全部資料並重新抓股價；備份裡的走勢紀錄與現有紀錄合併
+  const handleReplaceData = (newData, importedHistory) => {
     setData(newData);
+    if (importedHistory) saveHistory(mergeHistory(history, importedHistory));
     setStockStatus({});
     refreshStocks(newData.stocks);
   };
@@ -249,7 +264,7 @@ const App = () => {
         <TabBar activeTab={activeTab} onChange={setActiveTab} />
 
         <div className="space-y-[10px]">
-          {activeTab === 'overview' && <OverviewTab totals={totals} showValues={showValues} />}
+          {activeTab === 'overview' && <OverviewTab data={data} totals={totals} history={history} showValues={showValues} />}
 
           {(['cash', 'stocks', 'debts', 'expenses']).includes(activeTab) && (
             <ItemList activeTab={activeTab} items={data[categoryKey(activeTab)]} totals={totals} showValues={showValues} fxRates={fxRates} usdTwd={usdTwd} stockStatus={stockStatus} onQuickPay={handleQuickPay} onEdit={handleOpenModal} onDelete={deleteItem} />
@@ -270,7 +285,7 @@ const App = () => {
       {undo && !isLocked && <UndoToast message={undo.message} onUndo={handleUndo} />}
 
       {isSettingsOpen && (
-        <SettingsPanel data={data} storedPassword={storedPassword} passcodeInputMode={passcodeInputMode} autoLockMin={autoLockMin} onAutoLockChange={handleAutoLockChange} onReplaceData={handleReplaceData} onChangePasscode={handleChangePasscode} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsPanel data={data} history={history} storedPassword={storedPassword} passcodeInputMode={passcodeInputMode} autoLockMin={autoLockMin} onAutoLockChange={handleAutoLockChange} onReplaceData={handleReplaceData} onChangePasscode={handleChangePasscode} onClose={() => setIsSettingsOpen(false)} />
       )}
 
       {isModalOpen && <EntryModal initialForm={entryInitialForm} isEditing={!!editingId} onSave={handleSaveEntry} onClose={() => setIsModalOpen(false)} />}
