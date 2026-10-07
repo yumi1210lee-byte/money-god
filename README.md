@@ -1,16 +1,59 @@
-# React + Vite
+# Money God
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+個人資產管理 Web App，記錄現金、股票、負債與每月支出，可以加到 iPhone 主畫面當成 App 使用。
 
-Currently, two official plugins are available:
+網址：https://yumi1210lee-byte.github.io/money-god/
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 功能
 
-## React Compiler
+- **總覽**：淨資產、資產負債比例、每月支出與類別占比
+- **現金**：台幣與美元帳戶，美元依即時匯率換算
+- **股票**：台股（上市、上櫃）與外國股票，自動抓取股價、當日漲跌、股利與配息月份
+- **負債**：每月扣款金額與扣款日，到期後可一鍵記錄已繳
+- **支出**：月繳、年繳項目與類別
+- **資料備份**：在設定中匯出／匯入 JSON 備份檔
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 資料儲存
 
-## Expanding the ESLint configuration
+- 所有資料只存在瀏覽器的 `localStorage`，不會上傳到任何伺服器。
+- 加到主畫面的 App 與 Safari 的資料是分開存的；刪除主畫面圖示會一併刪除資料。
+- **請定期在「設定 → 資料備份」匯出備份。**
+- 開機密碼只是畫面鎖，資料本身沒有加密。
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+| localStorage key | 內容 |
+| --- | --- |
+| `money_god_v55` | 主要資料：`cash`、`stocks`、`debts`、`monthlyExpenses` |
+| `money_god_fx` | 上次抓到的匯率（以美元為基準） |
+| `money_god_last_backup` | 上次匯出備份的時間 |
+| `money_god_v55_before_import` | 上一次匯入前的資料，供「還原」使用 |
+| `asset_terminal_pass` | 開機密碼 |
+
+> 修改程式時，不要更改 `money_god_v55` 的名稱或資料格式；若必須更改，要寫轉換舊資料的程式，否則使用者的資料會看起來像消失了。
+
+## 股價與匯率來源
+
+- 股價來自 Yahoo Finance 的非官方 API。瀏覽器無法直接呼叫，因此依序透過公開 CORS 代理（allorigins、codetabs）取得，偶爾會失敗或延遲。
+- 純數字代號（如 `2330`、`00679B`）會先試上市 `.TW`，找不到再試上櫃 `.TWO`。
+- 解鎖時同步一次，之後每 5 分鐘自動更新；從背景切回 App 時，距上次同步超過 1 分鐘也會更新。股利資料一天最多更新一次。
+- 匯率來自 [open.er-api.com](https://open.er-api.com)。
+
+## 開發
+
+需要 Node.js 20.19 或 22.12 以上（Vite 7 的需求）。
+
+```bash
+npm install
+npm run dev      # 開發伺服器：http://localhost:5173/money-god/
+npm run lint     # 程式檢查
+npm run build    # 打包到 dist/
+npm run preview  # 預覽打包結果
+```
+
+## 部署
+
+```bash
+npm run deploy   # 打包後推送到 gh-pages 分支，GitHub Pages 約 1～2 分鐘後更新
+```
+
+- `vite.config.js` 的 `base: '/money-god/'` 必須與 GitHub repo 名稱相同。
+- 部署後，在手機上把 App 從背景完全關閉再重新開啟才會載入新版；GitHub Pages 有約 10 分鐘的快取。
