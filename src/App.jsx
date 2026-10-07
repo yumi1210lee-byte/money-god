@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef, useEffectEvent } from 'react';
+﻿import { useState, useEffect, useMemo, useRef, useEffectEvent } from 'react';
 import { 
   Wallet, 
   TrendingUp, 
@@ -10,21 +10,15 @@ import {
   Eye, 
   EyeOff, 
   Lock,
-  Unlock, 
   RefreshCw,
   X,
   PieChart,
   Check,
   Edit2,
-  Activity, 
-  Search,
   DollarSign,
   Settings,
-  AlertTriangle,
-  ChevronRight,
-  Tag,
-  CreditCard,
-  Clock
+  Download,
+  Upload
 } from 'lucide-react';
 
 // --- 品牌視覺資產：32x32 高精細版藍色像素金幣 ---
@@ -77,8 +71,33 @@ const isTwStock = (symbol) => {
   return sym.includes('.TW') || /^\d+[A-Z]?$/.test(sym);
 };
 
-// 股價的匯率：台股為 1，其他以美元匯率換算
-const stockFxRate = (stock, exchangeRate) => isTwStock(stock.quoteSymbol || stock.symbol) ? 1 : exchangeRate;
+const FX_KEY = 'money_god_fx';
+const DEFAULT_FX_RATES = { USD: 1, TWD: 32.5 };
+
+// 匯率以美元為基準（例如 { USD: 1, TWD: 32.5, JPY: 150 }），保存上次抓到的值，離線或抓取失敗時沿用
+const loadFxRates = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FX_KEY));
+    if (saved?.TWD) return saved;
+  } catch { /* 沒有或毀損時用預設值 */ }
+  return DEFAULT_FX_RATES;
+};
+
+// Yahoo 有些市場以輔幣報價，例如倫敦 GBp 是便士
+const SUBUNIT_CURRENCIES = { GBp: ['GBP', 100], ZAc: ['ZAR', 100], ILA: ['ILS', 100] };
+
+// 股價換算成台幣的匯率；舊資料還沒有幣別時，台股視為台幣、其他視為美元
+const stockFxRate = (stock, fxRates) => {
+  const currency = stock.quoteCurrency || (isTwStock(stock.quoteSymbol || stock.symbol) ? 'TWD' : 'USD');
+  const [base, divisor] = SUBUNIT_CURRENCIES[currency] || [currency, 1];
+  if (base === 'TWD') return 1 / divisor;
+  return (fxRates[base] ? fxRates.TWD / fxRates[base] : fxRates.TWD) / divisor;
+};
+
+const isIntInRange = (value, min, max) => {
+  const n = Number(value);
+  return value !== '' && Number.isInteger(n) && n >= min && n <= max;
+};
 
 // 年月字串，例如 "2026-10"，用來判斷本月是否已繳款
 const toYearMonth = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -160,7 +179,7 @@ const fetchStockQuote = async (stock, { withName, withDividend }) => {
     if (result?.meta?.regularMarketPrice == null) continue; // 查無此代號，試下一個
     const price = result.meta.regularMarketPrice;
     const prevClose = getPreviousClose(result);
-    const quote = { quoteSymbol: sym, price, change: prevClose != null ? price - prevClose : 0 };
+    const quote = { quoteSymbol: sym, currency: result.meta.currency, price, change: prevClose != null ? price - prevClose : 0 };
     if (withDividend) {
       const divResult = (await fetchYahoo(`/v8/finance/chart/${encodeURIComponent(sym)}?interval=1mo&range=1y&events=div`))?.chart?.result?.[0];
       if (divResult) Object.assign(quote, parseDividends(divResult));
@@ -178,6 +197,7 @@ const fetchStockQuote = async (stock, { withName, withDividend }) => {
 const applyQuote = (stock, quote) => ({
   ...stock,
   quoteSymbol: quote.quoteSymbol,
+  ...(quote.currency ? { quoteCurrency: quote.currency } : {}),
   price: quote.price,
   change: quote.change,
   amount: stock.shares * quote.price,
@@ -186,10 +206,11 @@ const applyQuote = (stock, quote) => ({
   ...(quote.dividend !== undefined ? { dividend: quote.dividend || stock.dividend, divMonth: quote.divMonth || stock.divMonth, divUpdatedAt: Date.now() } : {}),
 });
 
-const fetchUsdTwdRate = async () => {
+const fetchFxRates = async () => {
   try {
     const res = await fetchWithTimeout('https://open.er-api.com/v6/latest/USD');
-    return (await res.json())?.rates?.TWD || null;
+    const rates = (await res.json())?.rates;
+    return rates?.TWD ? rates : null;
   } catch (err) {
     console.error("Exchange rate sync failed:", err);
     return null;
@@ -207,6 +228,47 @@ const formatUpdatedAt = (ts) => {
   const d = new Date(ts);
   const time = d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
   return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+};
+
+const BACKUP_APP = 'money-god';
+const LAST_BACKUP_KEY = 'money_god_last_backup';
+const PRE_IMPORT_KEY = 'money_god_v55_before_import';
+const DATA_KEYS = ['cash', 'stocks', 'debts', 'monthlyExpenses'];
+
+const readStorage = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
+
+const formatDateTime = (ts) => {
+  const d = new Date(ts);
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+};
+
+// 讀取備份檔：接受本 App 匯出的格式，或直接是資料本身；格式不符時丟出錯誤
+const parseBackup = (text) => {
+  const parsed = JSON.parse(text);
+  const source = parsed?.app === BACKUP_APP ? parsed.data : parsed;
+  if (!source || typeof source !== 'object' || !DATA_KEYS.some(k => Array.isArray(source[k]))) throw new Error('invalid backup');
+  const data = {};
+  for (const k of DATA_KEYS) {
+    const items = source[k] ?? [];
+    if (!Array.isArray(items) || !items.every(i => i && typeof i === 'object')) throw new Error('invalid backup');
+    data[k] = items.map(i => i.id ? i : { ...i, id: Math.random().toString(36).slice(2, 11) });
+  }
+  return { data, exportedAt: parsed?.exportedAt || null };
+};
+
+const countItems = (data) => `現金 ${data.cash.length} 筆・股票 ${data.stocks.length} 筆・負債 ${data.debts.length} 筆・支出 ${data.monthlyExpenses.length} 筆`;
+
+// iPhone 用系統分享選單（可存到「檔案」或傳給自己）；不支援時改為直接下載
+const saveBackupFile = async (json, baseName) => {
+  const candidates = [new File([json], `${baseName}.json`, { type: 'application/json' }), new File([json], `${baseName}.txt`, { type: 'text/plain' })];
+  const shareable = candidates.find(file => navigator.canShare?.({ files: [file] }));
+  if (shareable) return navigator.share({ files: [shareable] });
+  const url = URL.createObjectURL(candidates[0]);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = candidates[0].name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
 const StockSyncBadge = ({ status, updatedAt }) => {
@@ -237,9 +299,15 @@ const App = () => {
 
   const [data, setData] = useState(loadData);
 
-  const [exchangeRate, setExchangeRate] = useState(32.50); 
+  const [fxRates, setFxRates] = useState(loadFxRates);
+  const usdTwd = fxRates.TWD;
   const [entryForm, setEntryForm] = useState({ type: 'cash', label: '', amount: '', currency: 'TWD', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1' });
   const [passForm, setPassForm] = useState({ old: '', new: '', confirm: '' });
+  const [lastBackupAt, setLastBackupAt] = useState(() => readStorage(LAST_BACKUP_KEY));
+  const [hasPreImport, setHasPreImport] = useState(() => !!readStorage(PRE_IMPORT_KEY));
+  const [pendingImport, setPendingImport] = useState(null); // 等待確認的匯入：{ data, exportedAt, title }
+  const [backupMsg, setBackupMsg] = useState(null);
+  const [passMsg, setPassMsg] = useState(null);
 
   const isBusy = isSyncing || Object.values(stockStatus).includes('loading');
 
@@ -278,8 +346,11 @@ const App = () => {
     lastSyncAtRef.current = Date.now();
     setIsSyncing(true);
     try {
-      const [rate, okCount] = await Promise.all([fetchUsdTwdRate(), refreshStocks(data.stocks)]);
-      if (rate) setExchangeRate(rate);
+      const [rates, okCount] = await Promise.all([fetchFxRates(), refreshStocks(data.stocks)]);
+      if (rates) {
+        setFxRates(rates);
+        localStorage.setItem(FX_KEY, JSON.stringify(rates));
+      }
       if (okCount > 0 || data.stocks.length === 0) setLastUpdated(new Date().toLocaleTimeString([], { hour12: false }));
     } catch (err) {
       console.error("Sync failed:", err);
@@ -306,8 +377,8 @@ const App = () => {
   useEffect(() => { localStorage.setItem(DATA_KEY, JSON.stringify(data)); }, [data]);
 
   const totals = useMemo(() => {
-    const cashTwd = data.cash.reduce((acc, curr) => acc + (curr.currency === 'USD' ? curr.amount * exchangeRate : curr.amount), 0);
-    const stockTwd = data.stocks.reduce((acc, curr) => acc + (curr.shares * curr.price * stockFxRate(curr, exchangeRate)), 0);
+    const cashTwd = data.cash.reduce((acc, curr) => acc + (curr.currency === 'USD' ? curr.amount * usdTwd : curr.amount), 0);
+    const stockTwd = data.stocks.reduce((acc, curr) => acc + (curr.shares * curr.price * stockFxRate(curr, fxRates)), 0);
     const debtTotal = data.debts.reduce((acc, curr) => acc + curr.amount, 0);
     const totalAssets = cashTwd + stockTwd;
     const tagStats = { '民生繳費': 0, '保險': 0, '貸款': 0, '訂閱': 0 };
@@ -322,7 +393,7 @@ const App = () => {
       ratio: expenseTotal > 0 ? (tagStats[key] / expenseTotal) * 100 : 0
     }));
     return { assets: totalAssets, debts: debtTotal, netWorth: totalAssets - debtTotal, cashTwd, stockTwd, monthlyExpenses: expenseTotal, assetRatio: (totalAssets + debtTotal) > 0 ? (totalAssets / (totalAssets + debtTotal)) * 100 : 0, debtRatio: (totalAssets + debtTotal) > 0 ? (debtTotal / (totalAssets + debtTotal)) * 100 : 0, tagRatios };
-  }, [data, exchangeRate]);
+  }, [data, fxRates, usdTwd]);
 
   const handleUnlock = () => {
     if (authInput === storedPassword) { setIsLocked(false); setAuthInput(''); setAuthError(false); }
@@ -344,7 +415,13 @@ const App = () => {
     setIsModalOpen(true);
   };
 
-  const canSaveEntry = entryForm.type === 'stocks' ? entryForm.symbol.trim() !== '' : entryForm.label.trim() !== '';
+  // 月份、日期超出範圍時標紅並停用送出
+  const invalidField = {
+    month: entryForm.type === 'expenses' && entryForm.cycle === 'yearly' && !isIntInRange(entryForm.month, 1, 12),
+    day: entryForm.type === 'expenses' && !isIntInRange(entryForm.day, 1, 31),
+    deductionDay: entryForm.type === 'debts' && !isIntInRange(entryForm.deductionDay, 1, 31),
+  };
+  const canSaveEntry = (entryForm.type === 'stocks' ? entryForm.symbol.trim() !== '' : entryForm.label.trim() !== '') && !Object.values(invalidField).some(Boolean);
 
   // 存檔一律立即完成；股票只有新增或改代號時才需要抓報價，且在背景進行
   const handleSaveEntry = () => {
@@ -357,7 +434,7 @@ const App = () => {
     const price = needsQuote ? 0 : (parseFloat(entryForm.price) || 0);
     const sharesCount = parseFloat(entryForm.shares) || 0;
     const calculatedAmount = type === 'stocks' ? (sharesCount * price) : (parseFloat(entryForm.amount) || 0);
-    const itemData = { ...prevItem, id: editingId || Math.random().toString(36).substr(2, 9), label: entryForm.label, amount: calculatedAmount, currency: entryForm.currency, symbol, shares: sharesCount, price, change: needsQuote ? 0 : (entryForm.change || 0), dividend: needsQuote ? 0 : (parseFloat(entryForm.dividend) || 0), divMonth: needsQuote ? '' : entryForm.divMonth, month: entryForm.month, day: parseInt(entryForm.day) || 1, tag: entryForm.tag, cycle: entryForm.cycle, monthlyPayment: parseFloat(entryForm.monthlyPayment) || 0, deductionDay: parseInt(entryForm.deductionDay) || 1 };
+    const itemData = { ...prevItem, id: editingId || Math.random().toString(36).substr(2, 9), label: entryForm.label, amount: calculatedAmount, currency: type === 'cash' ? entryForm.currency : 'TWD', symbol, shares: sharesCount, price, change: needsQuote ? 0 : (entryForm.change || 0), dividend: needsQuote ? 0 : (parseFloat(entryForm.dividend) || 0), divMonth: needsQuote ? '' : entryForm.divMonth, month: entryForm.month, day: parseInt(entryForm.day) || 1, tag: entryForm.tag, cycle: entryForm.cycle, monthlyPayment: parseFloat(entryForm.monthlyPayment) || 0, deductionDay: parseInt(entryForm.deductionDay) || 1 };
     // 換了代號就清掉舊代號的報價紀錄
     if (needsQuote) { delete itemData.quoteSymbol; delete itemData.priceUpdatedAt; delete itemData.divUpdatedAt; }
     setData(prev => ({ ...prev, [key]: editingId ? prev[key].map(i => i.id === editingId ? itemData : i) : [...prev[key], itemData] }));
@@ -378,11 +455,69 @@ const App = () => {
     setData(prev => ({ ...prev, [key]: prev[key].filter(i => i.id !== id) }));
   };
 
-  const handleChangePassword = () => {
-    if (passForm.old === storedPassword && passForm.new === passForm.confirm && passForm.new.length >= 4) {
-      localStorage.setItem('asset_terminal_pass', passForm.new);
-      setStoredPassword(passForm.new); setPassForm({ old: '', new: '', confirm: '' }); setIsSettingsOpen(false);
+  const closeSettings = () => {
+    setIsSettingsOpen(false);
+    setPendingImport(null);
+    setBackupMsg(null);
+    setPassMsg(null);
+  };
+
+  const handleExportBackup = async () => {
+    const now = new Date();
+    const json = JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: now.toISOString(), data }, null, 2);
+    try {
+      await saveBackupFile(json, `money-god-backup-${toYearMonth(now)}-${String(now.getDate()).padStart(2, '0')}`);
+      localStorage.setItem(LAST_BACKUP_KEY, now.toISOString());
+      setLastBackupAt(now.toISOString());
+      setBackupMsg({ type: 'ok', text: '已匯出備份' });
+    } catch (err) {
+      // 使用者關掉分享選單不算失敗
+      if (err?.name !== 'AbortError') setBackupMsg({ type: 'error', text: '匯出失敗，請再試一次' });
     }
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // 讓同一個檔案可以再選一次
+    if (!file) return;
+    try {
+      const { data: imported, exportedAt } = parseBackup(await file.text());
+      setPendingImport({ data: imported, exportedAt, title: `匯入「${file.name}」` });
+      setBackupMsg(null);
+    } catch {
+      setPendingImport(null);
+      setBackupMsg({ type: 'error', text: '這不是有效的 Money God 備份檔' });
+    }
+  };
+
+  const handleRequestUndoImport = () => {
+    try {
+      const { data: previous } = parseBackup(readStorage(PRE_IMPORT_KEY));
+      setPendingImport({ data: previous, exportedAt: null, title: '還原上一次匯入前的資料' });
+      setBackupMsg(null);
+    } catch {
+      setBackupMsg({ type: 'error', text: '找不到可以還原的資料' });
+    }
+  };
+
+  // 取代前先保留目前的資料，之後可以用「還原」換回來
+  const handleConfirmImport = () => {
+    localStorage.setItem(PRE_IMPORT_KEY, JSON.stringify(data));
+    setHasPreImport(true);
+    setData(pendingImport.data);
+    setStockStatus({});
+    refreshStocks(pendingImport.data.stocks);
+    setPendingImport(null);
+    setBackupMsg({ type: 'ok', text: '資料已取代' });
+  };
+
+  const handleChangePassword = () => {
+    if (passForm.old !== storedPassword) return setPassMsg({ type: 'error', text: '舊密碼不正確' });
+    if (passForm.new.length < 4) return setPassMsg({ type: 'error', text: '新密碼至少需要 4 碼' });
+    if (passForm.new !== passForm.confirm) return setPassMsg({ type: 'error', text: '兩次輸入的新密碼不一致' });
+    localStorage.setItem('asset_terminal_pass', passForm.new);
+    setStoredPassword(passForm.new); setPassForm({ old: '', new: '', confirm: '' });
+    setPassMsg({ type: 'ok', text: '密碼已更新' });
   };
 
   return (
@@ -471,7 +606,7 @@ const App = () => {
           ))}
         </div>
 
-        <div className="space-y-[10px] animate-in fade-in duration-300">
+        <div className="space-y-[10px]">
           {activeTab === 'overview' && (
             <div className="flex flex-col gap-[10px]">
               <div className="grid grid-cols-2 gap-[10px]">
@@ -526,7 +661,7 @@ const App = () => {
                 const isPaid = activeTab === 'debts' && isPaidThisMonth(item, today);
                 // 扣款日 29～31 號在小月份改以月底當天計算
                 const isDebtEnabled = activeTab === 'debts' && item.monthlyPayment > 0 && curDay >= Math.min(item.deductionDay || 1, daysInMonth) && !isPaid;
-                const stockRate = activeTab === 'stocks' ? stockFxRate(item, exchangeRate) : 1;
+                const stockRate = activeTab === 'stocks' ? stockFxRate(item, fxRates) : 1;
 
                 return (
                   <div key={item.id} className="bg-[#1f1f21] p-4 rounded-[6px] flex justify-between items-center border border-white/[0.03] transition-all min-h-[100px] gap-2 overflow-hidden">
@@ -561,7 +696,7 @@ const App = () => {
                     </div>
                     <div className="flex items-center gap-3 shrink-0 h-full font-sans font-bold ml-1">
                       <div className="flex flex-col text-right justify-center font-pixel min-w-[70px]">
-                        <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (item.currency === 'USD' ? `$ ${item.amount.toLocaleString()}` : formatTWD(activeTab === 'stocks' ? (item.shares * item.price * stockRate) : item.amount)) : 'XXXXX'}</span>
+                        <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (activeTab === 'cash' && item.currency === 'USD' ? `$ ${item.amount.toLocaleString()}` : formatTWD(activeTab === 'stocks' ? (item.shares * item.price * stockRate) : item.amount)) : 'XXXXX'}</span>
                         {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[8px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change * stockRate)}</span></div> <span className="text-[7px] font-sans text-gray-700 uppercase font-black">@ {item.price?.toFixed(1) || '---'}</span> </div> )}
                       </div>
                       <div className="flex flex-col gap-1.5 transition-all items-center justify-center bg-[#050505]/50 p-1.5 rounded-[4px] shrink-0 font-bold"><button onClick={() => handleOpenModal(activeTab, item)} className="text-[#444] hover:text-[#506384] transition-colors"><Edit2 size={13} /></button><div className="w-3 h-[1px] bg-white/[0.05]"></div><button onClick={() => deleteItem(activeTab, item.id)} className="text-[#444] hover:text-rose-600 transition-colors"><Trash2 size={13} /></button></div>
@@ -584,23 +719,46 @@ const App = () => {
       </div>
 
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/95 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-[#050505] rounded-t-[6px] p-5 border-t border-white/10 h-[60vh] flex flex-col shadow-2xl font-sans">
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/95 backdrop-blur-md">
+          <div className="w-full max-w-md bg-[#050505] rounded-t-[6px] p-5 border-t border-white/10 h-[75vh] flex flex-col shadow-2xl font-sans">
             <div className="flex justify-between items-center mb-8 shrink-0 px-2 font-pixel">
               <div className="font-pixel">
                 <h2 className="text-2xl text-white uppercase tracking-tighter leading-none">Settings</h2>
                 <p className="text-[10px] text-[#506384] font-bold tracking-[0.1em] mt-2 font-sans uppercase font-black font-sans">Configuration</p>
               </div>
-              <button onClick={() => setIsSettingsOpen(false)} className="w-12 h-12 bg-[#1f1f21] rounded-[6px] flex items-center justify-center text-[#4b5563] border border-white/5 shadow-inner"><X size={24}/></button>
+              <button onClick={closeSettings} className="w-12 h-12 bg-[#1f1f21] rounded-[6px] flex items-center justify-center text-[#4b5563] border border-white/5 shadow-inner"><X size={24}/></button>
             </div>
             <div className="flex-1 overflow-y-auto no-scrollbar space-y-[10px] font-sans">
               <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-4 border border-white/[0.03]">
+                <label className="text-[14px] font-black text-[#506384] uppercase tracking-widest px-1 font-sans">Backup / 資料備份</label>
+                <p className="text-[11px] text-[#4b5563] font-bold px-1 leading-relaxed">資料只存在這支手機的 App 裡，建議定期匯出備份。<br />{lastBackupAt ? `上次匯出：${formatDateTime(lastBackupAt)}` : '尚未匯出過備份'}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={handleExportBackup} className="h-12 bg-[#506384] text-white rounded-[6px] font-black text-xs tracking-widest flex items-center justify-center gap-2 shadow-lg"><Download size={14} />匯出備份</button>
+                  <label className="h-12 bg-[#050505] text-[#506384] border border-white/5 rounded-[6px] font-black text-xs tracking-widest flex items-center justify-center gap-2 cursor-pointer"><Upload size={14} />匯入備份<input type="file" accept=".json,.txt,application/json,text/plain" className="hidden" onChange={handleImportFile} /></label>
+                </div>
+                {pendingImport && (
+                  <div className="bg-[#050505] rounded-[6px] p-4 space-y-2 border border-[#ff5b41]/30">
+                    <p className="text-xs font-black text-white">{pendingImport.title}</p>
+                    {pendingImport.exportedAt && <p className="text-[11px] font-bold text-[#4b5563]">備份時間：{formatDateTime(pendingImport.exportedAt)}</p>}
+                    <p className="text-[11px] font-bold text-[#4b5563]">{countItems(pendingImport.data)}</p>
+                    <p className="text-[11px] font-black text-[#ff5b41]">目前的資料會被取代（之後可以用「還原」換回來）</p>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button onClick={() => setPendingImport(null)} className="h-10 bg-[#1f1f21] text-[#4b5563] rounded-[4px] font-black text-xs">取消</button>
+                      <button onClick={handleConfirmImport} className="h-10 bg-[#ff5b41] text-white rounded-[4px] font-black text-xs">確認取代</button>
+                    </div>
+                  </div>
+                )}
+                {backupMsg && <p className={`text-[11px] font-black px-1 ${backupMsg.type === 'error' ? 'text-[#ff5b41]' : 'text-[#d8ef9d]'}`}>{backupMsg.text}</p>}
+                {hasPreImport && !pendingImport && <button onClick={handleRequestUndoImport} className="text-[11px] text-[#4b5563] underline font-bold px-1">還原上一次匯入前的資料</button>}
+              </div>
+              <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-4 border border-white/[0.03]">
                 <label className="text-[14px] font-black text-[#506384] uppercase tracking-widest px-1 font-sans">Change Passcode / 更改密碼</label>
                 <div className="space-y-2">
-                  <input type="password" placeholder="Old Passcode" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.old} onChange={e => setPassForm({...passForm, old: e.target.value})} />
-                  <input type="password" placeholder="New Passcode" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.new} onChange={e => setPassForm({...passForm, new: e.target.value})} />
-                  <input type="password" placeholder="Confirm New" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.confirm} onChange={e => setPassForm({...passForm, confirm: e.target.value})} />
+                  <input type="password" placeholder="Old Passcode" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.old} onChange={e => { setPassForm({...passForm, old: e.target.value}); setPassMsg(null); }} />
+                  <input type="password" placeholder="New Passcode" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.new} onChange={e => { setPassForm({...passForm, new: e.target.value}); setPassMsg(null); }} />
+                  <input type="password" placeholder="Confirm New" className="w-full bg-[#050505] border border-white/5 rounded-[6px] px-5 h-12 text-white text-sm shadow-inner font-bold" value={passForm.confirm} onChange={e => { setPassForm({...passForm, confirm: e.target.value}); setPassMsg(null); }} />
                 </div>
+                {passMsg && <p className={`text-[11px] font-black px-1 ${passMsg.type === 'error' ? 'text-[#ff5b41]' : 'text-[#d8ef9d]'}`}>{passMsg.text}</p>}
                 <button onClick={handleChangePassword} className="w-full h-12 bg-[#506384] text-white rounded-[6px] font-black text-xs uppercase tracking-widest mt-2 shadow-lg font-black font-sans font-black">Update Security</button>
               </div>
             </div>
@@ -609,7 +767,7 @@ const App = () => {
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/95 backdrop-blur-md animate-in fade-in duration-200 font-sans">
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/95 backdrop-blur-md font-sans">
            <div className="w-full max-w-md bg-[#050505] rounded-t-[6px] p-5 border-t border-white/10 h-[85vh] flex flex-col shadow-2xl overflow-hidden font-sans">
               <div className="flex justify-between items-center mb-8 shrink-0 px-2 font-pixel">
                 <div><h2 className="text-2xl text-white uppercase tracking-tighter leading-none font-pixel">{editingId ? 'EDIT ENTRY' : 'NEW ENTRY'}</h2><p className="text-[10px] text-[#506384] font-bold mt-2 uppercase">Transaction Module Enabled</p></div>
@@ -654,7 +812,7 @@ const App = () => {
                   )}
 
                   {entryForm.type === 'expenses' && (
-                    <div className="space-y-[10px] animate-in slide-in-from-right-2 font-sans font-black">
+                    <div className="space-y-[10px] font-sans font-black">
                       <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03]">
                         <label className="text-[14px] font-black text-[#506384] uppercase font-black">Tag / 支出類別</label>
                         <div className="grid grid-cols-2 gap-2 font-sans font-black">
@@ -671,21 +829,22 @@ const App = () => {
                         </div>
                       </div>
                       <div className="bg-[#1f1f21] p-6 rounded-[6px] grid grid-cols-2 gap-5 border border-white/[0.03] font-sans">
-                        {entryForm.cycle === 'yearly' && (<div><label className="text-[14px] font-black text-[#506384] uppercase font-black">Month / 月</label><input type="number" min="1" max="12" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-4 h-14 text-white text-lg shadow-inner font-pixel" value={entryForm.month} onChange={e => setEntryForm({...entryForm, month: e.target.value})} /></div>)}
-                        <div className={entryForm.cycle === 'monthly' ? 'col-span-2' : ''}><label className="text-[14px] font-black text-[#506384] uppercase font-black">Day / 日</label><input type="number" min="1" max="31" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-4 h-14 text-white text-lg shadow-inner font-pixel" value={entryForm.day} onChange={e => setEntryForm({...entryForm, day: e.target.value})} /></div>
+                        {entryForm.cycle === 'yearly' && (<div><label className="text-[14px] font-black text-[#506384] uppercase font-black">Month / 月</label><input type="number" min="1" max="12" className={`font-pixel w-full bg-[#050505] border ${invalidField.month ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.month} onChange={e => setEntryForm({...entryForm, month: e.target.value})} />{invalidField.month && <p className="text-[10px] font-black text-[#ff5b41] mt-1">請輸入 1–12</p>}</div>)}
+                        <div className={entryForm.cycle === 'monthly' ? 'col-span-2' : ''}><label className="text-[14px] font-black text-[#506384] uppercase font-black">Day / 日</label><input type="number" min="1" max="31" className={`font-pixel w-full bg-[#050505] border ${invalidField.day ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.day} onChange={e => setEntryForm({...entryForm, day: e.target.value})} />{invalidField.day && <p className="text-[10px] font-black text-[#ff5b41] mt-1">請輸入 1–31</p>}</div>
                       </div>
                     </div>
                   )}
 
                   {entryForm.type === 'debts' && (
-                    <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-right-2 font-sans font-black">
+                    <div className="grid grid-cols-2 gap-4 font-sans font-black">
                        <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03]">
                           <label className="text-[12px] font-black text-[#506384] uppercase">Installment / 月付</label>
                           <input type="number" placeholder="0" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-4 h-12 text-white text-sm font-pixel" value={entryForm.monthlyPayment} onChange={e => setEntryForm({...entryForm, monthlyPayment: e.target.value})} />
                        </div>
                        <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03]">
                           <label className="text-[12px] font-black text-[#506384] uppercase">Pay Day / 扣款日</label>
-                          <input type="number" min="1" max="31" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-4 h-12 text-white text-sm font-pixel" value={entryForm.deductionDay} onChange={e => setEntryForm({...entryForm, deductionDay: e.target.value})} />
+                          <input type="number" min="1" max="31" className={`font-pixel w-full bg-[#050505] border ${invalidField.deductionDay ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-4 h-12 text-white text-sm font-pixel`} value={entryForm.deductionDay} onChange={e => setEntryForm({...entryForm, deductionDay: e.target.value})} />
+                          {invalidField.deductionDay && <p className="text-[10px] font-black text-[#ff5b41] mt-1">請輸入 1–31</p>}
                        </div>
                     </div>
                   )}
