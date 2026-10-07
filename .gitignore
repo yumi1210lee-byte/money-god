@@ -25,3 +25,7 @@ dist-ssr
 
 # Visual Studio
 .vs/
+
+# Playwright
+test-results/
+playwright-report/
