@@ -8,8 +8,8 @@ export const categoryKey = (type) => type === 'expenses' ? 'monthlyExpenses' : t
 
 // 開啟表單時的初始值：編輯時帶入項目內容，新增時依目前分頁決定類型
 export const buildEntryForm = (cat = 'cash', item = null) => item
-  ? { type: cat === 'monthlyExpenses' || cat === 'overview' || cat === 'expenses' ? 'expenses' : cat, label: item.label || '', amount: item.amount || '', currency: item.currency || 'TWD', symbol: item.symbol || '', shares: item.shares || '', price: item.price || 0, change: item.change || 0, dividend: item.dividend || '', divMonth: item.divMonth || '', month: item.month || '1', day: item.day || '1', tag: item.tag || '民生繳費', cycle: item.cycle || 'monthly', monthlyPayment: item.monthlyPayment || '', deductionDay: item.deductionDay || '1', annualRate: item.annualRate || '', costPrice: item.costPrice || '' }
-  : { type: cat === 'overview' ? 'cash' : (cat === 'expenses' ? 'expenses' : cat), label: '', amount: '', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', currency: 'TWD', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1', annualRate: '', costPrice: '' };
+  ? { type: cat === 'monthlyExpenses' || cat === 'overview' || cat === 'expenses' ? 'expenses' : cat, label: item.label || '', amount: item.amount || '', currency: item.currency || 'TWD', symbol: item.symbol || '', shares: item.shares || '', price: item.price || 0, change: item.change || 0, dividend: item.dividend || '', divMonth: item.divMonth || '', month: item.month || '1', day: item.day || '1', tag: item.tag || '民生繳費', cycle: item.cycle || 'monthly', monthlyPayment: item.monthlyPayment || '', deductionDay: item.deductionDay || '1', annualRate: item.annualRate || '', costMode: item.costTotal > 0 ? 'total' : 'price', costPrice: item.costPrice || '', costTotal: item.costTotal || '' }
+  : { type: cat === 'overview' ? 'cash' : (cat === 'expenses' ? 'expenses' : cat), label: '', amount: '', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', currency: 'TWD', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1', annualRate: '', costMode: 'price', costPrice: '', costTotal: '' };
 
 // 月份、日期、利率超出範圍的欄位
 export const getInvalidFields = (form) => ({
@@ -17,7 +17,8 @@ export const getInvalidFields = (form) => ({
   day: form.type === 'expenses' && !isIntInRange(form.day, 1, 31),
   deductionDay: form.type === 'debts' && !isIntInRange(form.deductionDay, 1, 31),
   annualRate: form.type === 'debts' && form.annualRate !== '' && !(Number(form.annualRate) >= 0 && Number(form.annualRate) <= 100),
-  costPrice: form.type === 'stocks' && form.costPrice !== '' && !(Number(form.costPrice) >= 0),
+  costPrice: form.type === 'stocks' && form.costMode !== 'total' && form.costPrice !== '' && !(Number(form.costPrice) >= 0),
+  costTotal: form.type === 'stocks' && form.costMode === 'total' && form.costTotal !== '' && !(Number(form.costTotal) >= 0),
 });
 
 export const canSaveEntry = (form) => (form.type === 'stocks' ? form.symbol.trim() !== '' : form.label.trim() !== '') && !Object.values(getInvalidFields(form)).some(Boolean);
@@ -30,7 +31,9 @@ export const buildItem = (form, prevItem, editingId) => {
   const price = needsQuote ? 0 : (parseFloat(form.price) || 0);
   const sharesCount = parseFloat(form.shares) || 0;
   const calculatedAmount = type === 'stocks' ? (sharesCount * price) : (parseFloat(form.amount) || 0);
-  const item = { ...prevItem, id: editingId || Math.random().toString(36).substr(2, 9), label: form.label, amount: calculatedAmount, currency: type === 'cash' ? form.currency : 'TWD', symbol, shares: sharesCount, price, change: needsQuote ? 0 : (form.change || 0), dividend: needsQuote ? 0 : (parseFloat(form.dividend) || 0), divMonth: needsQuote ? '' : form.divMonth, month: form.month, day: parseInt(form.day) || 1, tag: form.tag, cycle: form.cycle, monthlyPayment: parseFloat(form.monthlyPayment) || 0, deductionDay: parseInt(form.deductionDay) || 1, annualRate: parseFloat(form.annualRate) || 0, costPrice: parseFloat(form.costPrice) || 0 };
+  const item = { ...prevItem, id: editingId || Math.random().toString(36).substr(2, 9), label: form.label, amount: calculatedAmount, currency: type === 'cash' ? form.currency : 'TWD', symbol, shares: sharesCount, price, change: needsQuote ? 0 : (form.change || 0), dividend: needsQuote ? 0 : (parseFloat(form.dividend) || 0), divMonth: needsQuote ? '' : form.divMonth, month: form.month, day: parseInt(form.day) || 1, tag: form.tag, cycle: form.cycle, monthlyPayment: parseFloat(form.monthlyPayment) || 0, deductionDay: parseInt(form.deductionDay) || 1, annualRate: parseFloat(form.annualRate) || 0,
+    // 成本只存目前選的填法：成交均價（報價幣別，每股）或總投入金額（台幣，總額）
+    costPrice: form.costMode === 'total' ? 0 : (parseFloat(form.costPrice) || 0), costTotal: form.costMode === 'total' ? (parseFloat(form.costTotal) || 0) : 0 };
   // 換了代號就清掉舊代號的報價紀錄
   if (needsQuote) { delete item.quoteSymbol; delete item.quoteCurrency; delete item.priceUpdatedAt; delete item.divUpdatedAt; delete item.annualDividend; }
   return { item, needsQuote };

@@ -22,7 +22,7 @@ export const StockSummaryCard = ({ portfolio, stockCount, showValues }) => {
       <Row label="今日損益">
         {showValues ? <span className={tone(portfolio.todayChange)}>{formatSignedTWD(portfolio.todayChange)}</span> : hidden}
       </Row>
-      <Row label="未實現損益" hint={portfolio.withCost ? `已填成本 ${portfolio.withCost}／${stockCount} 檔` : '在股票的編輯畫面填入平均成本即可計算'}>
+      <Row label="未實現損益" hint={portfolio.withCost ? `已填成本 ${portfolio.withCost}／${stockCount} 檔` : '在股票的編輯畫面填入成交均價或總投入金額即可計算'}>
         {!portfolio.withCost ? <span className="text-[#4b5563]">—</span>
           : showValues ? <span className={tone(portfolio.pnl)}>{formatSignedTWD(portfolio.pnl)}<span className="block text-[11px]">{formatPercent(portfolio.pnlPct)}</span></span>
           : hidden}

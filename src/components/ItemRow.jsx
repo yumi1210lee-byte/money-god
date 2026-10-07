@@ -58,7 +58,7 @@ export const ItemRow = ({ activeTab, item, showValues, fxRates, usdTwd, status, 
         <div className="flex flex-col gap-1.5 px-3 py-2 bg-[#050505]/40 rounded-[4px] text-[11px] font-sans font-black tracking-tight">
           {pnl && (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[#4b5563] min-w-0 truncate">成本 {item.costPrice.toFixed(currency === 'TWD' ? 1 : 2)}{currency !== 'TWD' ? ` ${currency}` : ''}</span>
+              <span className="text-[#4b5563] min-w-0 truncate">{item.costTotal > 0 ? `總投入 ${formatTWD(item.costTotal)}` : `成本 ${item.costPrice.toFixed(currency === 'TWD' ? 1 : 2)}${currency !== 'TWD' ? ` ${currency}` : ''}`}</span>
               <span className={`shrink-0 ${pnl.pnl >= 0 ? 'text-up' : 'text-down'}`}>損益 {formatSignedTWD(pnl.pnl)}（{formatPercent(pnl.pct)}）</span>
             </div>
           )}
