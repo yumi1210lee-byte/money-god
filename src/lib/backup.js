@@ -15,7 +15,8 @@ export const parseBackup = (text) => {
     if (!Array.isArray(items) || !items.every(i => i && typeof i === 'object')) throw new Error('invalid backup');
     data[k] = items.map(i => i.id ? i : { ...i, id: Math.random().toString(36).slice(2, 11) });
   }
-  return { data, exportedAt: parsed?.exportedAt || null };
+  // 淨資產走勢紀錄是選填的（舊版備份沒有）
+  return { data, history: parsed?.app === BACKUP_APP && Array.isArray(parsed.history) ? parsed.history : null, exportedAt: parsed?.exportedAt || null };
 };
 
 export const countItems = (data) => `現金 ${data.cash.length} 筆・股票 ${data.stocks.length} 筆・負債 ${data.debts.length} 筆・支出 ${data.monthlyExpenses.length} 筆`;

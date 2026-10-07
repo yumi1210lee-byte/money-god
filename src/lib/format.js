@@ -6,6 +6,10 @@ export const isNegative = (val) => Math.round(val) < 0;
 
 export const formatTWD = (val) => `${isNegative(val) ? '-' : ''}NT$ ${formatAmount(val)}`;
 
+// 損益用：正數加上「+」
+export const formatSignedTWD = (val) => `${isNegative(val) ? '' : '+'}${formatTWD(val)}`;
+export const formatPercent = (val) => `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`;
+
 export const isIntInRange = (value, min, max) => {
   const n = Number(value);
   return value !== '' && Number.isInteger(n) && n >= min && n <= max;

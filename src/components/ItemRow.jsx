@@ -1,8 +1,9 @@
 import { TrendingUp, TrendingDown, Check, Edit2, Trash2, DollarSign, Calendar } from 'lucide-react';
 import { Money } from './Money.jsx';
 import { StockSyncBadge } from './StockSyncBadge.jsx';
-import { formatTWD } from '../lib/format.js';
-import { stockCurrency, stockFxRate } from '../lib/quotes.js';
+import { formatTWD, formatSignedTWD, formatPercent } from '../lib/format.js';
+import { stockCurrency, stockFxRate, annualDividendPerShare } from '../lib/quotes.js';
+import { stockPnl } from '../lib/portfolio.js';
 import { isPaidThisMonth } from '../lib/debts.js';
 
 // 現金／股票／負債／支出列表中的一列
@@ -14,6 +15,8 @@ export const ItemRow = ({ activeTab, item, showValues, fxRates, usdTwd, status, 
   // 扣款日 29～31 號在小月份改以月底當天計算
   const isDebtEnabled = activeTab === 'debts' && item.monthlyPayment > 0 && curDay >= Math.min(item.deductionDay || 1, daysInMonth) && !isPaid;
   const stockRate = activeTab === 'stocks' ? stockFxRate(item, fxRates) : 1;
+  const currency = activeTab === 'stocks' ? stockCurrency(item) : 'TWD';
+  const pnl = activeTab === 'stocks' ? stockPnl(item, fxRates) : null;
 
   return (
     <div className="bg-[#1f1f21] p-4 rounded-[6px] flex flex-col gap-3 border border-white/[0.03] transition-all overflow-hidden">
@@ -50,11 +53,19 @@ export const ItemRow = ({ activeTab, item, showValues, fxRates, usdTwd, status, 
           <span className={`uppercase px-1.5 py-0.5 rounded-[2px] shrink-0 ${isPaid ? 'bg-[#d8ef9d] text-black' : 'text-[#4b5563] border border-white/5'}`}>{isPaid ? 'PAID' : `Day ${item.deductionDay}`}</span>
         </div>
       )}
-      {/* 股利資訊放在獨立一行，避免擠在名稱欄位裡被截斷 */}
+      {/* 損益與股利放在獨立的區塊，避免擠在名稱欄位裡被截斷 */}
       {activeTab === 'stocks' && showValues && (
-        <div className="flex items-center justify-between gap-3 px-3 py-2 bg-[#050505]/40 rounded-[4px] text-[11px] font-sans font-black uppercase tracking-tight">
-          <span className="flex items-center gap-1.5 text-[#506384] min-w-0 truncate"><DollarSign size={12} className="shrink-0" />Div: {formatTWD(item.shares * item.dividend * stockRate)}</span>
-          <span className="flex items-center gap-1.5 text-[#4b5563] shrink-0"><Calendar size={12} />Mo: {item.divMonth || '---'}</span>
+        <div className="flex flex-col gap-1.5 px-3 py-2 bg-[#050505]/40 rounded-[4px] text-[11px] font-sans font-black tracking-tight">
+          {pnl && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[#4b5563] min-w-0 truncate">成本 {item.costPrice.toFixed(currency === 'TWD' ? 1 : 2)}{currency !== 'TWD' ? ` ${currency}` : ''}</span>
+              <span className={`shrink-0 ${pnl.pnl >= 0 ? 'text-up' : 'text-down'}`}>損益 {formatSignedTWD(pnl.pnl)}（{formatPercent(pnl.pct)}）</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5 text-[#506384] min-w-0 truncate"><DollarSign size={12} className="shrink-0" />年股利 {formatTWD(item.shares * annualDividendPerShare(item) * stockRate)}</span>
+            <span className="flex items-center gap-1.5 text-[#4b5563] shrink-0"><Calendar size={12} />配息月 {item.divMonth || '---'}</span>
+          </div>
         </div>
       )}
     </div>

@@ -78,13 +78,24 @@ export const toYahooCandidates = (symbol) => {
 
 export const parseDividends = (result) => {
   const divArray = Object.values(result?.events?.dividends || {}).sort((a, b) => b.date - a.date);
+  // 近 12 個月的每股股利合計；同一個月份只算最近一次，避免一年區間頭尾剛好跨到同一個月而重複計算
+  const latestByMonth = new Map();
+  for (const d of divArray) {
+    const month = new Date(d.date * 1000).getMonth();
+    if (!latestByMonth.has(month)) latestByMonth.set(month, d.amount || 0);
+  }
   return {
     dividend: divArray[0]?.amount || 0,
+    annualDividend: [...latestByMonth.values()].reduce((sum, amount) => sum + amount, 0),
     divMonth: [...new Set(divArray.map(d => new Date(d.date * 1000).getMonth() + 1))].sort((a, b) => a - b).join(','),
   };
 };
 
-export const isDividendStale = (stock) => !stock.divUpdatedAt || Date.now() - stock.divUpdatedAt > DIVIDEND_REFRESH_MS;
+// 還沒有年度股利（舊資料）或超過一天沒更新時，下次同步要重新抓股利
+export const isDividendStale = (stock) => stock.annualDividend === undefined || !stock.divUpdatedAt || Date.now() - stock.divUpdatedAt > DIVIDEND_REFRESH_MS;
+
+// 每股年度股利；還沒抓到近 12 個月資料時，用「最近一次配息 × 每年配息次數」估計
+export const annualDividendPerShare = (stock) => stock.annualDividend ?? (stock.dividend || 0) * (stock.divMonth ? stock.divMonth.split(',').length : 0);
 
 // 回傳報價；網路失敗或查無此代號時回傳 null
 export const fetchStockQuote = async (stock, { withName, withDividend }) => {
@@ -120,7 +131,7 @@ export const applyQuote = (stock, quote) => ({
   amount: stock.shares * quote.price,
   priceUpdatedAt: Date.now(),
   ...(!stock.label && quote.name ? { label: quote.name } : {}),
-  ...(quote.dividend !== undefined ? { dividend: quote.dividend || stock.dividend, divMonth: quote.divMonth || stock.divMonth, divUpdatedAt: Date.now() } : {}),
+  ...(quote.dividend !== undefined ? { dividend: quote.dividend || stock.dividend, annualDividend: quote.annualDividend, divMonth: quote.divMonth || stock.divMonth, divUpdatedAt: Date.now() } : {}),
 });
 
 export const fetchFxRates = async () => {

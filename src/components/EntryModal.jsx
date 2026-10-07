@@ -36,10 +36,18 @@ export const EntryModal = ({ initialForm, isEditing, onSave, onClose }) => {
               )}
 
               {entryForm.type === 'stocks' ? (
+                <>
                  <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
                    <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Shares / 持有股數</label>
                    <input type="number" inputMode="decimal" placeholder="0.00" className="font-pixel w-full bg-[#050505] border border-white/5 rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel" value={entryForm.shares} onChange={e => setEntryForm({...entryForm, shares: e.target.value})} />
                  </div>
+                 <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
+                   <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Cost / 平均成本（選填）</label>
+                   <input type="number" inputMode="decimal" placeholder="每股買進均價" className={`font-pixel w-full bg-[#050505] border ${invalidField.costPrice ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.costPrice} onChange={e => setEntryForm({...entryForm, costPrice: e.target.value})} />
+                   {invalidField.costPrice && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入 0 以上的數字</p>}
+                   <p className="text-[11px] font-bold text-[#4b5563] leading-relaxed">以股票報價的幣別填寫（美股填美元）。填寫後會顯示未實現損益與報酬率。</p>
+                 </div>
+                </>
               ) : (
                  <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
                    <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Amount / 主要金額</label>

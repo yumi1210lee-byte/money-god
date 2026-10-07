@@ -1,6 +1,7 @@
 // 總覽用的各項總額（皆換算成台幣）
 import { stockFxRate } from './quotes.js';
 import { EXPENSE_TAGS } from './entries.js';
+import { portfolioSummary } from './portfolio.js';
 
 export const computeTotals = (data, fxRates) => {
   const usdTwd = fxRates.TWD;
@@ -19,5 +20,5 @@ export const computeTotals = (data, fxRates) => {
     amount: tagStats[key],
     ratio: expenseTotal > 0 ? (tagStats[key] / expenseTotal) * 100 : 0
   }));
-  return { assets: totalAssets, debts: debtTotal, netWorth: totalAssets - debtTotal, cashTwd, stockTwd, monthlyExpenses: expenseTotal, assetRatio: (totalAssets + debtTotal) > 0 ? (totalAssets / (totalAssets + debtTotal)) * 100 : 0, debtRatio: (totalAssets + debtTotal) > 0 ? (debtTotal / (totalAssets + debtTotal)) * 100 : 0, tagRatios };
+  return { assets: totalAssets, debts: debtTotal, netWorth: totalAssets - debtTotal, cashTwd, stockTwd, monthlyExpenses: expenseTotal, assetRatio: (totalAssets + debtTotal) > 0 ? (totalAssets / (totalAssets + debtTotal)) * 100 : 0, debtRatio: (totalAssets + debtTotal) > 0 ? (debtTotal / (totalAssets + debtTotal)) * 100 : 0, tagRatios, portfolio: portfolioSummary(data.stocks, fxRates) };
 };

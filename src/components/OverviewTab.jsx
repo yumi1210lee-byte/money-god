@@ -1,6 +1,9 @@
 import { Money } from './Money.jsx';
+import { StockSummaryCard } from './StockSummaryCard.jsx';
+import { UpcomingCard } from './UpcomingCard.jsx';
+import { NetWorthChart } from './NetWorthChart.jsx';
 
-export const OverviewTab = ({ totals, showValues }) => (
+export const OverviewTab = ({ data, totals, history, showValues }) => (
     <div className="flex flex-col gap-[10px]">
       <div className="grid grid-cols-2 gap-[10px]">
         <div className="bg-[#506384] rounded-[6px] p-5 border border-white/[0.03] shadow-inner font-sans font-black">
@@ -20,6 +23,9 @@ export const OverviewTab = ({ totals, showValues }) => (
           <span className={`font-pixel text-[13px] tracking-tighter text-white`}>{showValues ? <Money value={totals.stockTwd} /> : 'XXXXX'}</span>
         </div>
       </div>
+      <NetWorthChart history={history} showValues={showValues} />
+      <StockSummaryCard portfolio={totals.portfolio} stockCount={data.stocks.length} showValues={showValues} />
+      <UpcomingCard data={data} showValues={showValues} />
       <div className="bg-[#1f1f21] rounded-[6px] p-7 border border-white/[0.03]">
         <div className="flex justify-between items-center mb-6 font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black font-sans font-black"><h3 className="text-[13px] text-[#506384] uppercase tracking-widest font-black font-sans font-black">Monthly Expense / 每月支出總額</h3></div>
         <div className="flex items-baseline gap-2 mb-8 font-black">
