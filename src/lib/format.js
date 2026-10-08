@@ -4,6 +4,9 @@ export const formatAmount = (val) => new Intl.NumberFormat('zh-TW', { maximumFra
 
 export const isNegative = (val) => Math.round(val) < 0;
 
+// 股價、每股成本：至少 2 位小數（台股有 0.05、0.01 的跳動單位），成本填得更細時最多顯示 4 位
+export const formatPrice = (val) => new Intl.NumberFormat('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(val);
+
 export const formatTWD = (val) => `${isNegative(val) ? '-' : ''}NT$ ${formatAmount(val)}`;
 
 // 損益用：正數加上「+」

@@ -1,7 +1,7 @@
 import { TrendingUp, TrendingDown, Check, Edit2, Trash2, DollarSign, Calendar } from 'lucide-react';
 import { Money } from './Money.jsx';
 import { StockSyncBadge } from './StockSyncBadge.jsx';
-import { formatTWD, formatSignedTWD, formatPercent } from '../lib/format.js';
+import { formatTWD, formatSignedTWD, formatPercent, formatPrice } from '../lib/format.js';
 import { stockCurrency, stockFxRate, annualDividendPerShare } from '../lib/quotes.js';
 import { stockPnl } from '../lib/portfolio.js';
 import { isPaidThisMonth } from '../lib/debts.js';
@@ -42,7 +42,7 @@ export const ItemRow = ({ activeTab, item, showValues, fxRates, usdTwd, status, 
         <div className="flex flex-col text-right justify-center font-pixel min-w-[70px]">
           <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (activeTab === 'cash' && item.currency === 'USD' ? <Money value={item.amount} currency="US$" /> : <Money value={activeTab === 'stocks' ? (item.shares * item.price * stockRate) : item.amount} />) : 'XXXXX'}</span>
           {activeTab === 'cash' && item.currency === 'USD' && showValues && <span className="text-[11px] font-sans font-black text-[#4b5563] mt-1.5 whitespace-nowrap">≈ {formatTWD(item.amount * usdTwd)}</span>}
-          {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[11px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change * stockRate)}</span></div> <span className="text-[11px] font-sans text-gray-500 uppercase font-black whitespace-nowrap">@ {item.price?.toFixed(stockCurrency(item) === 'TWD' ? 1 : 2) || '---'}{stockCurrency(item) !== 'TWD' ? ` ${stockCurrency(item)}` : ''}</span> </div> )}
+          {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[11px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change * stockRate)}</span></div> <span className="text-[11px] font-sans text-gray-500 uppercase font-black whitespace-nowrap">@ {item.price ? formatPrice(item.price) : '---'}{currency !== 'TWD' ? ` ${currency}` : ''}</span> </div> )}
         </div>
         <div className="flex flex-col gap-1.5 shrink-0"><button aria-label="編輯" onClick={() => onEdit(activeTab, item)} className="w-10 h-10 flex items-center justify-center rounded-[4px] bg-[#050505]/50 text-[#666] active:text-[#506384] transition-colors"><Edit2 size={16} /></button><button aria-label="刪除" onClick={() => onDelete(activeTab, item.id)} className="w-10 h-10 flex items-center justify-center rounded-[4px] bg-[#050505]/50 text-[#666] active:text-rose-600 transition-colors"><Trash2 size={16} /></button></div>
       </div>
@@ -58,7 +58,7 @@ export const ItemRow = ({ activeTab, item, showValues, fxRates, usdTwd, status, 
         <div className="flex flex-col gap-1.5 px-3 py-2 bg-[#050505]/40 rounded-[4px] text-[11px] font-sans font-black tracking-tight">
           {pnl && (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[#4b5563] min-w-0 truncate">{item.costTotal > 0 ? `總投入 ${formatTWD(item.costTotal)}` : `成本 ${item.costPrice.toFixed(currency === 'TWD' ? 1 : 2)}${currency !== 'TWD' ? ` ${currency}` : ''}`}</span>
+              <span className="text-[#4b5563] min-w-0 truncate">{item.costTotal > 0 ? `總投入 ${formatTWD(item.costTotal)}` : `成本 ${formatPrice(item.costPrice)}${currency !== 'TWD' ? ` ${currency}` : ''}`}</span>
               <span className={`shrink-0 ${pnl.pnl >= 0 ? 'text-up' : 'text-down'}`}>損益 {formatSignedTWD(pnl.pnl)}（{formatPercent(pnl.pct)}）</span>
             </div>
           )}
