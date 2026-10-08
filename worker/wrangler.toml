@@ -1,0 +1,6 @@
+# money-god 的股價中繼站；main 分支測試通過後由 GitHub Actions 自動部署
+# 網址：https://money-god-quotes.yumi-money.workers.dev
+name = "money-god-quotes"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true

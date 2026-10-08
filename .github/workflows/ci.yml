@@ -22,6 +22,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - run: npm run test:worker
       - run: npx playwright install --with-deps chromium
       - run: npm test
       # 測試失敗時保留報告（含失敗畫面截圖與操作紀錄），可在 Actions 頁面下載
@@ -59,3 +60,46 @@ jobs:
           npm run deploy -- -u "github-actions-bot <support+actions@github.com>" -m "Deploy ${GITHUB_SHA}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 股價中繼站（worker/）：main 更新且測試通過後部署到 Cloudflare，再實際查一次股價確認能用
+  deploy-worker:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-worker
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      WORKER_URL: https://money-god-quotes.yumi-money.workers.dev
+      WRANGLER_SEND_METRICS: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - name: Deploy to Cloudflare
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Yahoo 偶爾會暫時限流，所以查不到只顯示警告、不算部署失敗
+      - name: Check live quotes through the Worker
+        run: |
+          for sym in 2330.TW AAPL; do
+            rm -f body.json
+            code=$(curl -sS -o body.json -w '%{http_code}' --retry 3 --retry-delay 5 --retry-all-errors \
+              -H "Origin: https://yumi1210lee-byte.github.io" \
+              "$WORKER_URL/yahoo/v8/finance/chart/$sym?interval=1d&range=5d") || true
+            price=$(node -e "try { console.log(JSON.parse(require('fs').readFileSync('body.json', 'utf8')).chart.result[0].meta.regularMarketPrice) } catch { console.log('-') }")
+            echo "$sym: HTTP $code, price $price"
+            if [ "$code" != 200 ] || [ "$price" = - ]; then
+              echo "::warning::Worker 查詢 $sym 失敗（HTTP $code）：$(head -c 200 body.json 2>/dev/null)"
+            fi
+          done

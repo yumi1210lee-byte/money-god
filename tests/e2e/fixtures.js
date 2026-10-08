@@ -1,4 +1,5 @@
 import { test as base, expect } from '@playwright/test';
+import { QUOTE_WORKER_URL } from '../../src/lib/quotes.js';
 
 export { expect };
 
@@ -52,24 +53,30 @@ function yahooResponse(target) {
 
 export const test = base.extend({
   // 攔截所有外部請求並回傳模擬資料。
-  // 測試可設定 mock.fail.raw / codetabs / get（代理故障）、mock.delay['2330.TW']（毫秒）、mock.rateFails，
-  // 並從 mock.log 檢查發出過哪些請求。
+  // 測試可設定 mock.fail.worker / raw / codetabs / get（中繼站故障）、mock.delay['2330.TW']（毫秒）、mock.rateFails，
+  // 並從 mock.log 檢查發出過哪些請求（target 是實際要查詢的 Yahoo 網址）。
   mock: [async ({ page }, use) => {
     const mock = { log: [], fail: {}, delay: {}, rateFails: false };
     await page.route('https://fonts.googleapis.com/**', route => route.abort());
     await page.route('https://open.er-api.com/**', route => mock.rateFails
       ? route.fulfill({ status: 500, body: 'error' })
       : route.fulfill({ json: { rates: FX_RATES } }));
-    const proxy = (kind, param) => async (route) => {
-      const target = new URL(route.request().url()).searchParams.get(param);
+    const serve = async (kind, route, target) => {
       mock.log.push({ kind, target });
-      if (mock.fail[kind]) return route.fulfill({ status: 500, body: 'proxy down' });
+      // Worker 查不到 Yahoo 時回傳 502 JSON；公共代理故障時回傳錯誤頁
+      if (mock.fail[kind]) return kind === 'worker' ? route.fulfill({ status: 502, json: { error: 'yahoo unavailable' } }) : route.fulfill({ status: 500, body: 'proxy down' });
       const delayed = Object.keys(mock.delay).find(sym => target.includes(`/chart/${sym}?`));
       if (delayed) await new Promise(resolve => setTimeout(resolve, mock.delay[delayed]));
       const { status, json } = yahooResponse(target);
       if (kind === 'get') return route.fulfill({ json: { contents: JSON.stringify(json), status: { http_code: status } } });
       return route.fulfill({ status, json });
     };
+    const proxy = (kind, param) => route => serve(kind, route, new URL(route.request().url()).searchParams.get(param));
+    // 自己的 Worker：/yahoo/<Yahoo 路徑>，由 Worker 向 query1 查詢
+    await page.route(`${QUOTE_WORKER_URL}/**`, route => {
+      const url = new URL(route.request().url());
+      return serve('worker', route, `https://query1.finance.yahoo.com${url.pathname.replace(/^\/yahoo/, '')}${url.search}`);
+    });
     await page.route('https://api.allorigins.win/raw**', proxy('raw', 'url'));
     await page.route('https://api.allorigins.win/get**', proxy('get', 'url'));
     await page.route('https://api.codetabs.com/**', proxy('codetabs', 'quest'));

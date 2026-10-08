@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'playwright-report', 'test-results']),
+  globalIgnores(['dist', 'playwright-report', 'test-results', 'worker/.wrangler']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
@@ -34,6 +34,13 @@ export default defineConfig([
     },
     rules: {
       'react-hooks/rules-of-hooks': 'off',
+    },
+  },
+  // 股價中繼站在 Cloudflare Workers 執行；測試在 Node 執行
+  {
+    files: ['worker/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.serviceworker, ...globals.node },
     },
   },
 ])

@@ -34,8 +34,25 @@ test('匯率 API 失敗時股價仍會更新', async ({ page, mock }) => {
   await expect.poll(async () => (await storedData(page)).stocks[0].price).toBe(1050);
 });
 
+test('優先使用自己的 Worker，不經過公共代理', async ({ page, mock }) => {
+  await openApp(page, { data: { stocks: [tsmc, apple] } });
+  await unlock(page);
+  await waitForSync(page);
+  expect((await storedData(page)).stocks.map(s => s.price)).toEqual([1050, 200]);
+  expect(mock.log.length).toBeGreaterThan(0);
+  expect(mock.log.every(l => l.kind === 'worker')).toBe(true);
+});
+
+test('Worker 失敗時改用公共代理', async ({ page, mock }) => {
+  mock.fail = { worker: true };
+  await openApp(page, { data: { stocks: [tsmc] } });
+  await unlock(page);
+  await expect.poll(async () => (await storedData(page)).stocks[0].price).toBe(1050);
+  expect(mock.log.some(l => l.kind === 'raw')).toBe(true);
+});
+
 test('allorigins raw 與 codetabs 都失敗時，改用 allorigins get 與 Yahoo query2', async ({ page, mock }) => {
-  mock.fail = { raw: true, codetabs: true };
+  mock.fail = { worker: true, raw: true, codetabs: true };
   await openApp(page, { data: { stocks: [tsmc, apple] } });
   await unlock(page);
   await waitForSync(page);
@@ -44,7 +61,7 @@ test('allorigins raw 與 codetabs 都失敗時，改用 allorigins get 與 Yahoo
 });
 
 test('allorigins 失敗時改用 codetabs', async ({ page, mock }) => {
-  mock.fail = { raw: true };
+  mock.fail = { worker: true, raw: true };
   await openApp(page, { data: { stocks: [tsmc] } });
   await unlock(page);
   await expect.poll(async () => (await storedData(page)).stocks[0].price).toBe(1050);

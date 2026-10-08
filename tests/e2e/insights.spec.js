@@ -25,7 +25,7 @@ test('年度股利：近 12 個月配息合計，同一個月份只算一次', a
 });
 
 test('還沒抓到年度股利時，用最近一次配息 × 每年配息次數估計', async ({ page, mock }) => {
-  mock.fail = { raw: true, codetabs: true, get: true };
+  mock.fail = { worker: true, raw: true, codetabs: true, get: true };
   await openApp(page, { data: { stocks: [{ id: 'x', symbol: '9999', label: '季配股', shares: 1000, price: 50, change: 0, dividend: 1, divMonth: '3,6,9,12' }] } });
   await unlock(page);
   await waitForSync(page);

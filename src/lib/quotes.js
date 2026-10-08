@@ -1,4 +1,4 @@
-// 股價與匯率：透過 CORS 代理抓 Yahoo 報價、計算當日漲跌與股利、換算台幣
+// 股價與匯率：透過自己的 Cloudflare Worker（或公共 CORS 代理）抓 Yahoo 報價、計算當日漲跌與股利、換算台幣
 
 export const isTwStock = (symbol) => {
   const sym = String(symbol || '').trim().toUpperCase();
@@ -49,18 +49,24 @@ export const fetchWithTimeout = async (url) => {
   finally { clearTimeout(timer); }
 };
 
-// Yahoo 不允許瀏覽器直接跨網域呼叫，需經過 CORS 代理；依序嘗試不同代理與 Yahoo 主機
+// 自己的股價中繼站，程式在 worker/，main 更新後自動部署
+export const QUOTE_WORKER_URL = 'https://money-god-quotes.yumi-money.workers.dev';
+
+const yahooUrl = (host, path) => `https://${host}.finance.yahoo.com${path}`;
+
+// Yahoo 不允許瀏覽器直接跨網域呼叫，需經過中繼站：先用自己的 Worker，失敗再依序改用公共代理
 export const YAHOO_ATTEMPTS = [
-  { host: 'query1', proxy: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}&_=${Date.now()}` },
-  { host: 'query2', proxy: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
-  { host: 'query2', proxy: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&_=${Date.now()}` },
+  (path) => `${QUOTE_WORKER_URL}/yahoo${path}`,
+  (path) => `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl('query1', path))}&_=${Date.now()}`,
+  (path) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(yahooUrl('query2', path))}`,
+  (path) => `https://api.allorigins.win/get?url=${encodeURIComponent(yahooUrl('query2', path))}&_=${Date.now()}`,
 ];
 
-// 回傳 Yahoo 的 JSON（查無代號時也是 JSON）；所有代理都失敗、逾時或被限流時回傳 null
+// 回傳 Yahoo 的 JSON（查無代號時也是 JSON）；所有中繼站都失敗、逾時或被限流時回傳 null
 export const fetchYahoo = async (path) => {
-  for (const { host, proxy } of YAHOO_ATTEMPTS) {
+  for (const attempt of YAHOO_ATTEMPTS) {
     try {
-      const res = await fetchWithTimeout(proxy(`https://${host}.finance.yahoo.com${path}`));
+      const res = await fetchWithTimeout(attempt(path));
       const body = await res.json();
       const payload = typeof body?.contents === 'string' ? JSON.parse(body.contents) : body;
       if (payload?.chart || payload?.quotes) return payload;
