@@ -18,6 +18,24 @@ test('金額標示 NT$ / US$，美元帳戶顯示換算台幣，外國股價標�
   expect(await textOf(row(page, 'APPLE'))).toContain('@ 200.00 USD');
 });
 
+test('股價與每股成本至少顯示 2 位小數，台股不會被四捨五入到 1 位', async ({ page }) => {
+  await openApp(page, { data: { stocks: [
+    { id: 'b1', symbol: '00679B', label: '美債ETF', shares: 1000, price: 0, change: 0, dividend: 0, divMonth: '', costPrice: 27.8532 },
+    { id: 't1', symbol: '2330', label: '台積電', shares: 1, price: 0, change: 0, dividend: 0, divMonth: '', costPrice: 620 },
+  ] } });
+  await unlock(page);
+  await waitForSync(page);
+  await toggleValues(page);
+  await openTab(page, '股票');
+  const bond = await textOf(row(page, '美債ETF'));
+  expect(bond).toContain('@ 27.85');
+  expect(bond).not.toContain('27.9');
+  expect(bond).toContain('成本 27.8532');
+  const tsmc = await textOf(row(page, '台積電'));
+  expect(tsmc).toContain('@ 1,050.00');
+  expect(tsmc).toContain('成本 620.00');
+});
+
 test('外國股票依報價幣別換算（日圓、英鎊便士）', async ({ page }) => {
   await openApp(page, { data: { stocks: [
     { id: 'j1', symbol: '7203.T', label: 'TOYOTA', shares: 100, price: 0, change: 0, dividend: 0, divMonth: '' },

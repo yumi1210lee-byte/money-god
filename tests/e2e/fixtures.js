@@ -14,6 +14,8 @@ export const QUOTES = {
   '7203.T': { price: 3000, prev: 2950, gmt: 32400, day: twDay, name: 'Toyota', div: 40, ccy: 'JPY' },
   'VOD.L': { price: 70, prev: 69, gmt: 3600, day: usDay, name: 'Vodafone', div: 2, ccy: 'GBp' },
   'AAPL': { price: 200, prev: 198, gmt: -14400, day: usDay, name: 'Apple Inc.', div: 0.25, ccy: 'USD' },
+  // 上櫃 ETF，股價有兩位小數；Yahoo 常回傳帶誤差的浮點數
+  '00679B.TWO': { price: 27.850000381469727, prev: 27.8, gmt: 28800, day: twDay, name: '元大美債20年', div: 0.3, ccy: 'TWD' },
   // 一年配息多次：近 12 個月每個月份只算最近一次，2025/9 那筆和 2026/9 同月份，不列入
   '0056.TW': { price: 38, prev: 37.5, gmt: 28800, day: twDay, name: '元大高股息', ccy: 'TWD', divs: [
     ['2026-09-15', 1.0], ['2026-06-15', 0.8], ['2026-03-15', 0.7], ['2025-12-15', 0.6], ['2025-10-20', 0.5], ['2025-09-20', 0.4],

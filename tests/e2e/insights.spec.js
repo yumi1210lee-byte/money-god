@@ -54,7 +54,7 @@ test('填入平均成本後顯示未實現損益與報酬率', async ({ page }) 
 
   await toggleValues(page);
   const text = await textOf(row(page, '台積電'));
-  expect(text).toContain('成本 900.0');
+  expect(text).toContain('成本 900.00');
   expect(text).toContain('損益 +NT$ 150,000（+16.7%）'); // (1050 − 900) × 1000
   await expect(row(page, '台積電').getByText('損益', { exact: false })).toHaveClass(/text-up/);
 
