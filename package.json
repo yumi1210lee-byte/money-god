@@ -10,7 +10,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:worker": "node --test worker/test/*.test.js"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",
