@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 可在 Actions 頁面手動執行（在 main 上執行時，測試通過後會重新部署）
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,3 +33,29 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  # main 更新且測試通過後，自動打包並推送到 gh-pages 分支，GitHub Pages 會接著更新網站
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # 連續合併時依序部署，不會同時推送
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build and push to gh-pages
+        run: |
+          git remote set-url origin "https://git:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          npm run deploy -- -u "github-actions-bot <support+actions@github.com>" -m "Deploy ${GITHUB_SHA}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

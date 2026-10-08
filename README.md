@@ -64,12 +64,16 @@ npx playwright test --ui          # 用圖形介面逐項檢視測試過程
 - 測試放在 `tests/e2e/`，以 iPhone 的螢幕寬度操作打包後的 App；另有一項在開發模式下執行。
 - 股價、匯率、字型等外部請求都由 `tests/e2e/fixtures.js` 以模擬資料回應，不需要網路，結果也不受市場變動影響。
 - 測試會使用 4173（預覽）與 5173（開發）兩個連接埠。
-- GitHub Actions 會在每次推送到 `main` 與每個 PR 自動執行 lint 與全部測試；失敗時可以在 Actions 頁面下載 `playwright-report`，裡面有失敗畫面的截圖與操作紀錄。
+- GitHub Actions 會在每次推送到 `main` 與每個 PR 自動執行 lint 與全部測試（`main` 通過後接著自動部署，見下方）；失敗時可以在 Actions 頁面下載 `playwright-report`，裡面有失敗畫面的截圖與操作紀錄。
 
 ## 部署
 
+- **自動部署**：每次推送或合併到 `main`，GitHub Actions 跑完 lint 與測試、全部通過後，會自動打包並推送到 `gh-pages` 分支，GitHub Pages 約 1～2 分鐘後更新。測試失敗就不會部署，網站維持上一版。
+- **重新部署**：在 GitHub 的 Actions 頁面選 CI → Run workflow（分支選 `main`）。
+- **手動部署**（備用）：
+
 ```bash
-npm run deploy   # 打包後推送到 gh-pages 分支，GitHub Pages 約 1～2 分鐘後更新
+npm run deploy   # 在自己的電腦打包後推送到 gh-pages 分支
 ```
 
 - `vite.config.js` 的 `base: '/money-god/'` 必須與 GitHub repo 名稱相同。
