@@ -4,6 +4,7 @@ import { toYearMonth, formatTWD } from './lib/format.js';
 import { DATA_KEY, FX_KEY, AUTO_LOCK_KEY, AUTO_LOCK_OPTIONS, loadData, loadFxRates, readStorage } from './lib/storage.js';
 import { STOCK_CONCURRENCY, AUTO_REFRESH_MS, RESUME_REFRESH_MS, runWithLimit, fetchStockQuote, isDividendStale, applyQuote, fetchFxRates } from './lib/quotes.js';
 import { principalPaid } from './lib/debts.js';
+import { fetchGoldQuote, applyGoldQuote } from './lib/gold.js';
 import { buildEntryForm, buildItem, categoryKey } from './lib/entries.js';
 import { computeTotals } from './lib/totals.js';
 import { HISTORY_KEY, loadHistory, upsertSnapshot, mergeHistory, toDateKey } from './lib/history.js';
@@ -28,10 +29,11 @@ const App = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [stockStatus, setStockStatus] = useState({}); // 每檔股票的更新狀態：'loading' | 'ok' | 'error'
+  const [stockStatus, setStockStatus] = useState({}); // 每檔股票（與期貨分頁的每筆黃金）的更新狀態：'loading' | 'ok' | 'error'
   const syncingRef = useRef(false);
   const lastSyncAtRef = useRef(0);
   const stockRequestRef = useRef({});
+  const goldRequestRef = useRef(null);
   const [lastUpdated, setLastUpdated] = useState('--:--:--');
   const [syncStep, setSyncStep] = useState(-1);
   const [editingId, setEditingId] = useState(null);
@@ -81,18 +83,30 @@ const App = () => {
     return okCount;
   };
 
+  // 黃金共用同一個國際金價：抓一次就套用到期貨分頁的每一筆；回傳是否成功
+  const refreshGold = async (items) => {
+    if (!items.length) return false;
+    const token = {};
+    goldRequestRef.current = token;
+    setStockStatus(prev => ({ ...prev, ...Object.fromEntries(items.map(i => [i.id, 'loading'])) }));
+    const quote = await fetchGoldQuote();
+    if (quote) setData(prev => ({ ...prev, futures: prev.futures.map(f => applyGoldQuote(f, quote)) }));
+    if (goldRequestRef.current === token) setStockStatus(prev => ({ ...prev, ...Object.fromEntries(items.map(i => [i.id, quote ? 'ok' : 'error'])) }));
+    return !!quote;
+  };
+
   const syncFinanceData = async () => {
     if (syncingRef.current) return;
     syncingRef.current = true;
     lastSyncAtRef.current = Date.now();
     setIsSyncing(true);
     try {
-      const [rates, okCount] = await Promise.all([fetchFxRates(), refreshStocks(data.stocks)]);
+      const [rates, okCount, goldOk] = await Promise.all([fetchFxRates(), refreshStocks(data.stocks), refreshGold(data.futures)]);
       if (rates) {
         setFxRates(rates);
         localStorage.setItem(FX_KEY, JSON.stringify(rates));
       }
-      if (okCount > 0 || data.stocks.length === 0) setLastUpdated(new Date().toLocaleTimeString([], { hour12: false }));
+      if (okCount > 0 || goldOk || (data.stocks.length === 0 && data.futures.length === 0)) setLastUpdated(new Date().toLocaleTimeString([], { hour12: false }));
     } catch (err) {
       console.error("Sync failed:", err);
     } finally {
@@ -148,7 +162,7 @@ const App = () => {
     setIsModalOpen(true);
   };
 
-  // 存檔一律立即完成；股票只有新增或改代號時才需要抓報價，且在背景進行
+  // 存檔一律立即完成；股票只有新增或改代號時、黃金只有還沒有金價時才需要抓報價，且在背景進行
   const handleSaveEntry = (form) => {
     const key = categoryKey(form.type);
     const prevItem = editingId ? data[key].find(i => i.id === editingId) : null;
@@ -156,7 +170,10 @@ const App = () => {
     setData(prev => ({ ...prev, [key]: editingId ? prev[key].map(i => i.id === editingId ? item : i) : [...prev[key], item] }));
     setIsModalOpen(false);
     if (!editingId) setActiveTab(form.type);
-    if (needsQuote) refreshStocks([item]);
+    if (needsQuote) {
+      if (form.type === 'futures') refreshGold([item]);
+      else refreshStocks([item]);
+    }
   };
 
   const showUndo = (message, restore) => {
@@ -201,6 +218,7 @@ const App = () => {
     if (importedHistory) saveHistory(mergeHistory(history, importedHistory));
     setStockStatus({});
     refreshStocks(newData.stocks);
+    refreshGold(newData.futures);
   };
 
   // 上鎖時一併隱藏金額、關閉所有視窗
@@ -265,7 +283,7 @@ const App = () => {
         <div className="space-y-[10px]">
           {activeTab === 'overview' && <OverviewTab data={data} totals={totals} history={history} showValues={showValues} />}
 
-          {(['cash', 'stocks', 'debts', 'expenses']).includes(activeTab) && (
+          {(['cash', 'stocks', 'futures', 'debts', 'expenses']).includes(activeTab) && (
             <ItemList activeTab={activeTab} items={data[categoryKey(activeTab)]} totals={totals} showValues={showValues} fxRates={fxRates} stockStatus={stockStatus} onQuickPay={handleQuickPay} onEdit={handleOpenModal} onDelete={deleteItem} />
           )}
         </div>

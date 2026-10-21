@@ -1,5 +1,6 @@
 // 新增／編輯表單：表單初始值、欄位檢查、把表單轉成資料項目
 import { isIntInRange } from './format.js';
+import { toGrams, fromGrams } from './gold.js';
 
 export const EXPENSE_TAGS = ['民生繳費', '保險', '貸款', '訂閱'];
 
@@ -8,8 +9,8 @@ export const categoryKey = (type) => type === 'expenses' ? 'monthlyExpenses' : t
 
 // 開啟表單時的初始值：編輯時帶入項目內容，新增時依目前分頁決定類型
 export const buildEntryForm = (cat = 'cash', item = null) => item
-  ? { type: cat === 'monthlyExpenses' || cat === 'overview' || cat === 'expenses' ? 'expenses' : cat, label: item.label || '', amount: item.amount || '', currency: item.currency || 'TWD', symbol: item.symbol || '', shares: item.shares || '', price: item.price || 0, change: item.change || 0, dividend: item.dividend || '', divMonth: item.divMonth || '', month: item.month || '1', day: item.day || '1', tag: item.tag || '民生繳費', cycle: item.cycle || 'monthly', monthlyPayment: item.monthlyPayment || '', deductionDay: item.deductionDay || '1', annualRate: item.annualRate || '', costMode: item.costTotal > 0 ? 'total' : 'price', costPrice: item.costPrice || '', costTotal: item.costTotal || '' }
-  : { type: cat === 'overview' ? 'cash' : (cat === 'expenses' ? 'expenses' : cat), label: '', amount: '', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', currency: 'TWD', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1', annualRate: '', costMode: 'price', costPrice: '', costTotal: '' };
+  ? { type: cat === 'monthlyExpenses' || cat === 'overview' || cat === 'expenses' ? 'expenses' : cat, label: item.label || '', amount: item.amount || '', currency: item.currency || 'TWD', symbol: item.symbol || '', shares: item.shares || '', price: item.price || 0, change: item.change || 0, dividend: item.dividend || '', divMonth: item.divMonth || '', month: item.month || '1', day: item.day || '1', tag: item.tag || '民生繳費', cycle: item.cycle || 'monthly', monthlyPayment: item.monthlyPayment || '', deductionDay: item.deductionDay || '1', annualRate: item.annualRate || '', costMode: item.costTotal > 0 ? 'total' : 'price', costPrice: item.costPrice || '', costTotal: item.costTotal || '', weight: item.grams ? String(fromGrams(item.grams, item.unit)) : '', weightUnit: item.unit || 'g' }
+  : { type: cat === 'overview' ? 'cash' : (cat === 'expenses' ? 'expenses' : cat), label: '', amount: '', symbol: '', shares: '', price: 0, change: 0, dividend: '', divMonth: '', currency: 'TWD', month: '1', day: '1', tag: '民生繳費', cycle: 'monthly', monthlyPayment: '', deductionDay: '1', annualRate: '', costMode: 'price', costPrice: '', costTotal: '', weight: '', weightUnit: 'g' };
 
 // 月份、日期、利率超出範圍的欄位
 export const getInvalidFields = (form) => ({
@@ -18,14 +19,23 @@ export const getInvalidFields = (form) => ({
   deductionDay: form.type === 'debts' && !isIntInRange(form.deductionDay, 1, 31),
   annualRate: form.type === 'debts' && form.annualRate !== '' && !(Number(form.annualRate) >= 0 && Number(form.annualRate) <= 100),
   costPrice: form.type === 'stocks' && form.costMode !== 'total' && form.costPrice !== '' && !(Number(form.costPrice) >= 0),
-  costTotal: form.type === 'stocks' && form.costMode === 'total' && form.costTotal !== '' && !(Number(form.costTotal) >= 0),
+  costTotal: ((form.type === 'stocks' && form.costMode === 'total') || form.type === 'futures') && form.costTotal !== '' && !(Number(form.costTotal) >= 0),
+  weight: form.type === 'futures' && form.weight !== '' && !(Number(form.weight) > 0),
 });
 
-export const canSaveEntry = (form) => (form.type === 'stocks' ? form.symbol.trim() !== '' : form.label.trim() !== '') && !Object.values(getInvalidFields(form)).some(Boolean);
+// 股票要有代號、黃金要有重量，其他要有名稱
+const hasRequired = (form) => form.type === 'stocks' ? form.symbol.trim() !== '' : form.type === 'futures' ? Number(form.weight) > 0 : form.label.trim() !== '';
+
+export const canSaveEntry = (form) => hasRequired(form) && !Object.values(getInvalidFields(form)).some(Boolean);
 
 // 把表單轉成要存的項目；股票只有新增或改代號時才需要重新抓報價（needsQuote）
 export const buildItem = (form, prevItem, editingId) => {
   const type = form.type;
+  // 期貨分頁的黃金：重量一律存成公克，另外記住填寫時用的單位；還沒有金價時才需要抓
+  if (type === 'futures') {
+    const item = { ...prevItem, id: editingId || Math.random().toString(36).substr(2, 9), kind: 'gold', label: form.label.trim() || '黃金', grams: toGrams(parseFloat(form.weight) || 0, form.weightUnit), unit: form.weightUnit, costTotal: parseFloat(form.costTotal) || 0, price: prevItem?.price || 0, change: prevItem?.change || 0 };
+    return { item, needsQuote: !(item.price > 0) };
+  }
   const symbol = form.symbol.trim().toUpperCase();
   const needsQuote = type === 'stocks' && (!prevItem || prevItem.symbol !== symbol);
   const price = needsQuote ? 0 : (parseFloat(form.price) || 0);

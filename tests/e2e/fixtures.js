@@ -14,6 +14,8 @@ export const QUOTES = {
   '7203.T': { price: 3000, prev: 2950, gmt: 32400, day: twDay, name: 'Toyota', div: 40, ccy: 'JPY' },
   'VOD.L': { price: 70, prev: 69, gmt: 3600, day: usDay, name: 'Vodafone', div: 2, ccy: 'GBp' },
   'AAPL': { price: 200, prev: 198, gmt: -14400, day: usDay, name: 'Apple Inc.', div: 0.25, ccy: 'USD' },
+  // 國際金價（紐約黃金期貨，美元／金衡盎司）：每公克 100 美元 = 3,000 台幣，前一日每公克 99 美元
+  'GC=F': { price: 100 * 31.1034768, prev: 99 * 31.1034768, gmt: -14400, day: usDay, name: 'Gold', div: 0, ccy: 'USD' },
   // 上櫃 ETF，股價有兩位小數；Yahoo 常回傳帶誤差的浮點數
   '00679B.TWO': { price: 27.850000381469727, prev: 27.8, gmt: 28800, day: twDay, name: '元大美債20年', div: 0.3, ccy: 'TWD' },
   // 一年配息多次：近 12 個月每個月份只算最近一次，2025/9 那筆和 2026/9 同月份，不列入
