@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X, Wallet, TrendingUp, ArrowDownCircle, Calendar } from 'lucide-react';
 import { EXPENSE_TAGS, getInvalidFields, canSaveEntry } from '../lib/entries.js';
+import { CASH_CURRENCIES } from '../lib/currencies.js';
 
 const COST_MODES = [{ id: 'price', label: '成交均價' }, { id: 'total', label: '總投入金額' }];
 
@@ -70,10 +71,16 @@ export const EntryModal = ({ initialForm, isEditing, onSave, onClose }) => {
               )}
 
               {entryForm.type === 'cash' && (
-                <div className="bg-[#1f1f21] p-6 rounded-[6px] flex gap-[10px] border border-white/[0.03] font-sans">
-                  {['TWD', 'USD'].map(c => (
-                    <button key={c} type="button" onClick={() => setEntryForm({...entryForm, currency: c})} className={`flex-1 h-14 rounded-[4px] font-pixel text-xs font-bold border transition-all ${entryForm.currency === c ? 'bg-[#506384] text-white border-transparent' : 'bg-[#050505] text-[#4b5563] border-transparent'}`}>{c}</button>
-                  ))}
+                <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
+                  <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Currency / 幣別</label>
+                  <div className="grid grid-cols-3 gap-[10px]" role="group" aria-label="幣別">
+                    {CASH_CURRENCIES.map(c => (
+                      <button key={c.code} type="button" onClick={() => setEntryForm({...entryForm, currency: c.code})} aria-pressed={entryForm.currency === c.code} className={`h-14 rounded-[4px] flex flex-col items-center justify-center gap-1 border transition-all ${entryForm.currency === c.code ? 'bg-[#506384] text-white border-transparent' : 'bg-[#050505] text-[#4b5563] border-transparent'}`}>
+                        <span className="font-pixel text-xs font-bold">{c.code}</span>
+                        <span className="font-sans text-[11px] font-black">{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 

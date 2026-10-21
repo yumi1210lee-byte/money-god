@@ -1,6 +1,7 @@
 // 金額、日期的格式化與輸入檢查
 
-export const formatAmount = (val) => new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 0 }).format(Math.abs(val));
+// decimals：外幣存款顯示小數位數（台幣與日圓為 0）
+export const formatAmount = (val, decimals = 0) => new Intl.NumberFormat('zh-TW', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(Math.abs(val));
 
 export const isNegative = (val) => Math.round(val) < 0;
 

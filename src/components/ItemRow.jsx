@@ -4,10 +4,11 @@ import { StockSyncBadge } from './StockSyncBadge.jsx';
 import { formatTWD, formatSignedTWD, formatPercent, formatPrice } from '../lib/format.js';
 import { stockCurrency, stockFxRate, annualDividendPerShare } from '../lib/quotes.js';
 import { stockPnl } from '../lib/portfolio.js';
+import { cashCurrency, cashToTwd } from '../lib/currencies.js';
 import { isPaidThisMonth } from '../lib/debts.js';
 
 // 現金／股票／負債／支出列表中的一列
-export const ItemRow = ({ activeTab, item, showValues, fxRates, usdTwd, status, onQuickPay, onEdit, onDelete }) => {
+export const ItemRow = ({ activeTab, item, showValues, fxRates, status, onQuickPay, onEdit, onDelete }) => {
   const today = new Date();
   const curDay = today.getDate();
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -17,13 +18,14 @@ export const ItemRow = ({ activeTab, item, showValues, fxRates, usdTwd, status, 
   const stockRate = activeTab === 'stocks' ? stockFxRate(item, fxRates) : 1;
   const currency = activeTab === 'stocks' ? stockCurrency(item) : 'TWD';
   const pnl = activeTab === 'stocks' ? stockPnl(item, fxRates) : null;
+  const cash = activeTab === 'cash' ? cashCurrency(item.currency) : null;
 
   return (
     <div className="bg-[#1f1f21] p-4 rounded-[6px] flex flex-col gap-3 border border-white/[0.03] transition-all overflow-hidden">
      <div className="flex justify-between items-center gap-2 min-h-[68px]">
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <div className="w-11 h-11 rounded-[6px] bg-[#050505] flex items-center justify-center text-[#506384] border border-white/5 shadow-inner font-pixel text-[13px] font-bold overflow-hidden shrink-0">
-           {activeTab === 'cash' ? ( <span>{item.currency === 'TWD' ? 'NT' : 'US'}</span> ) : 
+           {activeTab === 'cash' ? ( <span>{cash.badge}</span> ) : 
             activeTab === 'stocks' ? ( item.change >= 0 ? <TrendingUp size={22} className="text-up" /> : <TrendingDown size={22} className="text-down" /> ) : 
             activeTab === 'debts' ? ( <button aria-label="記錄本月已繳" onClick={() => onQuickPay(item.id)} disabled={!isDebtEnabled} className={`w-full h-full flex items-center justify-center transition-all ${isDebtEnabled ? 'bg-[#ff5b41]/10 text-[#ff5b41] active:bg-[#ff5b41] active:text-white' : 'text-[#333] cursor-not-allowed'}`}><Check size={20} strokeWidth={isDebtEnabled ? 4 : 2} /></button> ) : 
             ( <div className="flex flex-col items-center justify-center leading-none">{item.cycle === 'yearly' ? ( <> <span className="text-[11px] opacity-60 mb-0.5 font-pixel">{String(item.month).padStart(2, '0')}</span> <span className="text-[13px] font-bold font-pixel">{String(item.day).padStart(2, '0')}</span> </> ) : ( <span className="text-[13px] font-bold font-pixel">{String(item.day).padStart(2, '0')}</span> )}</div> )}
@@ -40,8 +42,8 @@ export const ItemRow = ({ activeTab, item, showValues, fxRates, usdTwd, status, 
       </div>
       <div className="flex items-center gap-3 shrink-0 h-full font-sans font-bold ml-1">
         <div className="flex flex-col text-right justify-center font-pixel min-w-[70px]">
-          <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (activeTab === 'cash' && item.currency === 'USD' ? <Money value={item.amount} currency="US$" /> : <Money value={activeTab === 'stocks' ? (item.shares * item.price * stockRate) : item.amount} />) : 'XXXXX'}</span>
-          {activeTab === 'cash' && item.currency === 'USD' && showValues && <span className="text-[11px] font-sans font-black text-[#4b5563] mt-1.5 whitespace-nowrap">≈ {formatTWD(item.amount * usdTwd)}</span>}
+          <span className={`font-pixel text-sm text-white leading-none font-pixel`}>{showValues ? (cash ? <Money value={item.amount} currency={cash.prefix} decimals={cash.decimals} /> : <Money value={activeTab === 'stocks' ? (item.shares * item.price * stockRate) : item.amount} />) : 'XXXXX'}</span>
+          {cash && cash.code !== 'TWD' && showValues && <span className="text-[11px] font-sans font-black text-[#4b5563] mt-1.5 whitespace-nowrap">≈ {formatTWD(cashToTwd(item, fxRates))}</span>}
           {activeTab === 'stocks' && showValues && ( <div className="flex flex-col items-end gap-0.5 mt-1.5"> <div className="flex items-baseline gap-1"><span className={`text-[11px] font-sans font-black ${item.change >= 0 ? 'text-up' : 'text-down'}`}>{item.change >= 0 ? '+' : ''}{formatTWD(item.shares * item.change * stockRate)}</span></div> <span className="text-[11px] font-sans text-gray-500 uppercase font-black whitespace-nowrap">@ {item.price ? formatPrice(item.price) : '---'}{currency !== 'TWD' ? ` ${currency}` : ''}</span> </div> )}
         </div>
         <div className="flex flex-col gap-1.5 shrink-0"><button aria-label="編輯" onClick={() => onEdit(activeTab, item)} className="w-10 h-10 flex items-center justify-center rounded-[4px] bg-[#050505]/50 text-[#666] active:text-[#506384] transition-colors"><Edit2 size={16} /></button><button aria-label="刪除" onClick={() => onDelete(activeTab, item.id)} className="w-10 h-10 flex items-center justify-center rounded-[4px] bg-[#050505]/50 text-[#666] active:text-rose-600 transition-colors"><Trash2 size={16} /></button></div>

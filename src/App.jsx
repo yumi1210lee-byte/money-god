@@ -41,7 +41,6 @@ const App = () => {
   const [history, setHistory] = useState(loadHistory);
 
   const [fxRates, setFxRates] = useState(loadFxRates);
-  const usdTwd = fxRates.TWD;
   const [undo, setUndo] = useState(null); // 可復原的上一個動作：{ message, restore }
   const undoTimerRef = useRef(null);
   const [autoLockMin, setAutoLockMin] = useState(() => {
@@ -267,7 +266,7 @@ const App = () => {
           {activeTab === 'overview' && <OverviewTab data={data} totals={totals} history={history} showValues={showValues} />}
 
           {(['cash', 'stocks', 'debts', 'expenses']).includes(activeTab) && (
-            <ItemList activeTab={activeTab} items={data[categoryKey(activeTab)]} totals={totals} showValues={showValues} fxRates={fxRates} usdTwd={usdTwd} stockStatus={stockStatus} onQuickPay={handleQuickPay} onEdit={handleOpenModal} onDelete={deleteItem} />
+            <ItemList activeTab={activeTab} items={data[categoryKey(activeTab)]} totals={totals} showValues={showValues} fxRates={fxRates} stockStatus={stockStatus} onQuickPay={handleQuickPay} onEdit={handleOpenModal} onDelete={deleteItem} />
           )}
         </div>
       </main>

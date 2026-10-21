@@ -22,8 +22,8 @@ export const QUOTES = {
   ] },
 };
 
-// 以美元為基準的模擬匯率：1 USD = 30 TWD
-export const FX_RATES = { USD: 1, TWD: 30, JPY: 150, GBP: 0.75 };
+// 以美元為基準的模擬匯率：1 USD = 30 TWD；1 EUR = 37.5、1 JPY = 0.2、1 CNY = 4、1 SGD = 25 TWD
+export const FX_RATES = { USD: 1, TWD: 30, JPY: 150, GBP: 0.75, EUR: 0.8, CNY: 7.5, SGD: 1.2 };
 
 const notFound = { chart: { result: null, error: { code: 'Not Found', description: 'No data found' } } };
 
