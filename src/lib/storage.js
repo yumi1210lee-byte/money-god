@@ -20,7 +20,8 @@ export const loadData = () => {
 
 export const FX_KEY = 'money_god_fx';
 
-export const DEFAULT_FX_RATES = { USD: 1, TWD: 32.5 };
+// 第一次使用、還沒抓到匯率時的概略值
+export const DEFAULT_FX_RATES = { USD: 1, TWD: 32.5, EUR: 0.9, JPY: 150, CNY: 7.2, SGD: 1.3 };
 
 // 匯率以美元為基準（例如 { USD: 1, TWD: 32.5, JPY: 150 }），保存上次抓到的值，離線或抓取失敗時沿用
 export const loadFxRates = () => {
