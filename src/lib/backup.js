@@ -2,7 +2,7 @@
 
 export const BACKUP_APP = 'money-god';
 
-export const DATA_KEYS = ['cash', 'stocks', 'debts', 'monthlyExpenses'];
+export const DATA_KEYS = ['cash', 'stocks', 'futures', 'debts', 'monthlyExpenses'];
 
 // 讀取備份檔：接受本 App 匯出的格式，或直接是資料本身；格式不符時丟出錯誤
 export const parseBackup = (text) => {
@@ -19,7 +19,7 @@ export const parseBackup = (text) => {
   return { data, history: parsed?.app === BACKUP_APP && Array.isArray(parsed.history) ? parsed.history : null, exportedAt: parsed?.exportedAt || null };
 };
 
-export const countItems = (data) => `現金 ${data.cash.length} 筆・股票 ${data.stocks.length} 筆・負債 ${data.debts.length} 筆・支出 ${data.monthlyExpenses.length} 筆`;
+export const countItems = (data) => `現金 ${data.cash.length} 筆・股票 ${data.stocks.length} 筆・${data.futures.length ? `期貨 ${data.futures.length} 筆・` : ''}負債 ${data.debts.length} 筆・支出 ${data.monthlyExpenses.length} 筆`;
 
 // iPhone 用系統分享選單（可存到「檔案」或傳給自己）；不支援時改為直接下載
 export const saveBackupFile = async (json, baseName) => {

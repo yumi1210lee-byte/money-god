@@ -5,6 +5,7 @@ export const DATA_KEY = 'money_god_v55';
 export const DEFAULT_DATA = {
   cash: [{ id: 'c1', label: '主要活期儲蓄', amount: 1250000, currency: 'TWD' }],
   stocks: [{ id: 's1', symbol: '2330.TW', label: '台積電', shares: 1000, price: 1050, change: 15, dividend: 4.5, divMonth: '3,6,9,12' }],
+  futures: [],
   debts: [{ id: 'd1', label: '房屋貸款本金', amount: 8500000, monthlyPayment: 32000, deductionDay: 5, lastPaidMonth: 0 }],
   monthlyExpenses: [{ id: 'e1', label: '房貸繳納', amount: 32000, day: 5, tag: '貸款', cycle: 'monthly' }]
 };
@@ -13,7 +14,7 @@ export const DEFAULT_DATA = {
 export const loadData = () => {
   try {
     const saved = localStorage.getItem(DATA_KEY);
-    if (saved) return { cash: [], stocks: [], debts: [], monthlyExpenses: [], ...JSON.parse(saved) };
+    if (saved) return { cash: [], stocks: [], futures: [], debts: [], monthlyExpenses: [], ...JSON.parse(saved) };
   } catch { /* 資料毀損時改用預設資料 */ }
   return DEFAULT_DATA;
 };

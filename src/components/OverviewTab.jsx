@@ -2,6 +2,7 @@ import { Money } from './Money.jsx';
 import { StockSummaryCard } from './StockSummaryCard.jsx';
 import { UpcomingCard } from './UpcomingCard.jsx';
 import { NetWorthChart } from './NetWorthChart.jsx';
+import { formatWeight } from '../lib/gold.js';
 
 export const OverviewTab = ({ data, totals, history, showValues }) => (
     <div className="flex flex-col gap-[10px]">
@@ -22,6 +23,15 @@ export const OverviewTab = ({ data, totals, history, showValues }) => (
           <span className="text-[11px] text-[#4b5563] block mb-2 uppercase tracking-widest">Stock / 股票總額</span>
           <span className={`font-pixel text-[13px] tracking-tighter text-white`}>{showValues ? <Money value={totals.stockTwd} /> : 'XXXXX'}</span>
         </div>
+        {data.futures.length > 0 && (
+          <div className="col-span-2 bg-[#1f1f21] rounded-[6px] p-5 border border-white/[0.03] font-sans font-black flex items-end justify-between gap-3">
+            <div>
+              <span className="text-[11px] text-[#4b5563] block mb-2 uppercase tracking-widest">Futures / 期貨總額</span>
+              <span className={`font-pixel text-[13px] tracking-tighter text-white`}>{showValues ? <Money value={totals.futuresTwd} /> : 'XXXXX'}</span>
+            </div>
+            <span className="text-[11px] text-[#4b5563] text-right">黃金 {formatWeight(totals.futures.grams)}</span>
+          </div>
+        )}
       </div>
       <NetWorthChart history={history} showValues={showValues} />
       <StockSummaryCard portfolio={totals.portfolio} stockCount={data.stocks.length} showValues={showValues} />

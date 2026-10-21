@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { X, Wallet, TrendingUp, ArrowDownCircle, Calendar } from 'lucide-react';
+import { X, Wallet, TrendingUp, Coins, ArrowDownCircle, Calendar } from 'lucide-react';
 import { EXPENSE_TAGS, getInvalidFields, canSaveEntry } from '../lib/entries.js';
 import { CASH_CURRENCIES } from '../lib/currencies.js';
+import { WEIGHT_UNITS, toGrams, formatWeight } from '../lib/gold.js';
 
 const COST_MODES = [{ id: 'price', label: '成交均價' }, { id: 'total', label: '總投入金額' }];
 
@@ -23,8 +24,8 @@ export const EntryModal = ({ initialForm, isEditing, onSave, onClose }) => {
           </div>
           <div className="flex-1 overflow-y-auto no-scrollbar pb-10 space-y-[10px] px-1 font-sans">
             {!isEditing && (
-              <div className="grid grid-cols-4 gap-[10px] bg-[#1f1f21] p-1.5 rounded-[6px] mb-4">
-                {[{ id: 'cash', icon: Wallet, label: '現金' }, { id: 'stocks', icon: TrendingUp, label: '股票' }, { id: 'debts', icon: ArrowDownCircle, label: '負債' }, { id: 'expenses', icon: Calendar, label: '支出' }].map(t => (
+              <div className="grid grid-cols-5 gap-1.5 bg-[#1f1f21] p-1.5 rounded-[6px] mb-4">
+                {[{ id: 'cash', icon: Wallet, label: '現金' }, { id: 'stocks', icon: TrendingUp, label: '股票' }, { id: 'futures', icon: Coins, label: '期貨' }, { id: 'debts', icon: ArrowDownCircle, label: '負債' }, { id: 'expenses', icon: Calendar, label: '支出' }].map(t => (
                   <button key={t.id} onClick={() => setEntryForm({...entryForm, type: t.id})} className={`py-5 rounded-[6px] flex flex-col items-center gap-2 border transition-all ${entryForm.type === t.id ? 'bg-[#506384] text-white border-transparent shadow-lg' : 'bg-transparent text-[#4b5563] border-transparent'}`}><t.icon size={18} /><span className="text-[11px] font-sans font-black uppercase font-black font-sans font-black">{t.label}</span></button>
                 ))}
               </div>
@@ -61,6 +62,27 @@ export const EntryModal = ({ initialForm, isEditing, onSave, onClose }) => {
                    <p className="text-[11px] font-bold text-[#4b5563] leading-relaxed">{costMode === 'total'
                      ? '填買進至今實際扣款的台幣總額（含手續費），適合台幣交割、定期定額。損益會包含匯率變動；每次加碼後記得同時更新股數和總投入金額。'
                      : '以股票報價的幣別填寫（美股填美元）。填寫後會顯示未實現損益與報酬率。'}</p>
+                 </div>
+                </>
+              ) : entryForm.type === 'futures' ? (
+                <>
+                 <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
+                   <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Gold / 黃金重量</label>
+                   <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="重量單位">
+                     {WEIGHT_UNITS.map(u => (
+                       <button key={u.id} onClick={() => setEntryForm({...entryForm, weightUnit: u.id})} aria-pressed={entryForm.weightUnit === u.id} className={`h-10 rounded-[4px] text-[12px] font-black transition-all ${entryForm.weightUnit === u.id ? 'bg-[#506384] text-white' : 'bg-[#050505] text-[#6b7280]'}`}>{u.label}</button>
+                     ))}
+                   </div>
+                   <input type="number" inputMode="decimal" placeholder={entryForm.weightUnit === 'qian' ? '幾錢' : '幾公克'} className={`font-pixel w-full bg-[#050505] border ${invalidField.weight ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.weight} onChange={e => setEntryForm({...entryForm, weight: e.target.value})} />
+                   {invalidField.weight && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入大於 0 的數字</p>}
+                   {Number(entryForm.weight) > 0 && <p className="text-[12px] font-black text-white/70">＝ {formatWeight(toGrams(Number(entryForm.weight), entryForm.weightUnit), entryForm.weightUnit)}</p>}
+                   <p className="text-[11px] font-bold text-[#4b5563] leading-relaxed">依國際金價（紐約黃金期貨）換算成台幣，1 錢 = 3.75 公克。</p>
+                 </div>
+                 <div className="bg-[#1f1f21] p-6 rounded-[6px] space-y-3 border border-white/[0.03] font-sans">
+                   <label className="text-[14px] font-black text-[#506384] uppercase leading-none font-black">Cost / 總投入金額（選填）</label>
+                   <input type="number" inputMode="decimal" placeholder="買進花費的台幣總額" className={`font-pixel w-full bg-[#050505] border ${invalidField.costTotal ? 'border-[#ff5b41]' : 'border-white/5'} rounded-[6px] px-6 h-14 text-white text-lg shadow-inner font-pixel`} value={entryForm.costTotal} onChange={e => setEntryForm({...entryForm, costTotal: e.target.value})} />
+                   {invalidField.costTotal && <p className="text-[11px] font-black text-[#ff5b41] mt-1">請輸入 0 以上的數字</p>}
+                   <p className="text-[11px] font-bold text-[#4b5563] leading-relaxed">含工本費、手續費。填寫後會顯示損益（含匯率變動）。</p>
                  </div>
                 </>
               ) : (
